@@ -1,0 +1,14 @@
+# Ignore everything
+*
+
+# But don't ignore these files
+!app.py
+!temp_filtered.py
+!requirements.txt
+!database.py
+!Logo.jpg
+!packages.txt
+!utils.txt
+
+# (Optional) Allow .gitignore itself to be tracked
+!.gitignore
