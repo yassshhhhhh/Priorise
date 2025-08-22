@@ -130,6 +130,7 @@ kpi_dict = {
                  "SUM(CASE WHEN {period_col} = '{start_period}' THEN sales_value ELSE 0 END)) / " 
                  "NULLIF(SUM(CASE WHEN {period_col} = '{start_period}' THEN sales_value ELSE 0 END),0)) * 100",
         "tables": ["raw_sales_rms"],
+        "main_keyword": ["sales"],
         "keywords": ["sales", "growth", "percentage", "performance"]
     },
     "Volume Growth Percentage": {
@@ -138,6 +139,7 @@ kpi_dict = {
                  "SUM(CASE WHEN {period_col} = '{start_period}' THEN sales_vol ELSE 0 END)) / " 
                  "NULLIF(SUM(CASE WHEN {period_col} = '{start_period}' THEN sales_vol ELSE 0 END),0)) * 100",
         "tables": ["raw_sales_rms"],
+        "main_keyword": ["volume"],
         "keywords": ["volume", "growth", "percentage", "performance"]
     },
     "Unit Growth Percentage": {
@@ -146,6 +148,7 @@ kpi_dict = {
                  "SUM(CASE WHEN {period_col} = '{start_period}' THEN sales_units ELSE 0 END)) / " 
                  "NULLIF(SUM(CASE WHEN {period_col} = '{start_period}' THEN sales_units ELSE 0 END),0)) * 100",
         "tables": ["raw_sales_rms"],
+        "main_keyword": ["unit"],
         "keywords": ["unit", "growth", "percentage", "performance"]
     },
     "Share Change Value": {
@@ -160,6 +163,7 @@ kpi_dict = {
             )""",
         ),
         "tables": ["raw_sales_rms"],
+        "main_keyword": ["share"],
         "keywords": ["share", "change", "value", "category", "market"]
     },
     "Share Change Volume": {
@@ -174,16 +178,28 @@ kpi_dict = {
             )""",
         ),
         "tables": ["raw_sales_rms"],
+        "main_keyword": ["share"],
         "keywords": ["share", "change", "volume", "category", "market"]
     },
     "Household Penetration Growth": {
         "definition": "Difference in penetration percentage between two periods",
         "logic": ("""(
-                (AVG(CASE WHEN period = '{end_period}' THEN penetration_percentage END))
-                -
-                (AVG(CASE WHEN period = '{start_period}' THEN penetration_percentage END))
+                SELECT
+                    {filters},
+                    (
+                        (AVG(CASE WHEN period = {end_period} THEN penetration_percentage END))
+                        -
+                        (AVG(CASE WHEN period = {start_period} THEN penetration_percentage END))
+                    ) AS Household_Penetration_Growth
+                FROM
+                    {table_name}
+                WHERE
+                    {filters}
+                GROUP BY
+                    {filters};
             )"""),
         "tables": ["PRI_iop_hh_consumption"],
+        "main_keyword": ["household"],
         "keywords": ["household", "penetration", "growth", "points", "yearly change"]
     },
     # Sample: The Error I got Earlier where it's 3 aurguments 
@@ -195,6 +211,7 @@ kpi_dict = {
             "WHERE {filters} "
         ),
         "tables": ["raw_sales_rms"],
+        "main_keyword": ["top"],
         "keywords": ["top", "pack size", "selling", "most", "aloe vera", "soap", "volume"]
     },
 
@@ -1133,30 +1150,64 @@ class SmartQueryEngine:
         yy = str(year)[-2:]
         return [p for p in period_values if f"'{yy}" in p]
 
-    def pick_relevant_table(self, prompt: str):
+    # def pick_relevant_table(self, prompt: str):
+    #     prompt_l = prompt.lower()
+    #     print(prompt_l)
+
+    #     # Priority fallback checks first
+    #     if any(k in prompt_l for k in ["household", "penetration", "hh"]):
+    #         return 'PRI_iop_hh_consumption'
+
+    #     if any(k in prompt_l for k in ["brand loss", "gain", "repertoire", "brand_net_shift"]):
+    #         return "raw_brand_loss_gain"
+
+    #     if any(k in prompt_l for k in ["triers", "retainer", "lapsers"]):
+    #         return "raw_entry_erosion_consumption"
+
+    #     # Then check KPIs keywords
+    #     for kpi_name, kpi_data in self.kpi_dict.items():
+    #         keywords = kpi_data.get('keywords', [])
+    #         for keyword in keywords:
+    #             if keyword.lower() in prompt_l:
+    #                 tables = kpi_data.get("tables", [])
+    #                 if tables:
+    #                     return tables[0]
+    #     # Default fallback
+    #     return "raw_sales_rms"
+
+    def pick_relevant_tables(self, prompt: str):
         prompt_l = prompt.lower()
         print(prompt_l)
 
+        relevant_tables = []
+
         # Priority fallback checks first
         if any(k in prompt_l for k in ["household", "penetration", "hh"]):
-            return 'PRI_iop_hh_consumption'
+            relevant_tables.append('PRI_iop_hh_consumption')
 
         if any(k in prompt_l for k in ["brand loss", "gain", "repertoire", "brand_net_shift"]):
-            return "raw_brand_loss_gain"
+            relevant_tables.append("raw_brand_loss_gain")
 
         if any(k in prompt_l for k in ["triers", "retainer", "lapsers"]):
-            return "raw_entry_erosion_consumption"
+            relevant_tables.append("raw_entry_erosion_consumption")
 
-        # Then check KPIs keywords
-        for kpi_name, kpi_data in self.kpi_dict.items():
-            keywords = kpi_data.get('keywords', [])
-            for keyword in keywords:
-                if keyword.lower() in prompt_l:
-                    tables = kpi_data.get("tables", [])
-                    if tables:
-                        return tables[0]
-        # Default fallback
-        return "raw_sales_rms"
+        # # Check KPI keywords
+        # for kpi_name, kpi_data in self.kpi_dict.items():
+        #     keywords = kpi_data.get('keywords', [])
+        #     if any(keyword.lower() in prompt_l for keyword in keywords):
+        #         tables = kpi_data.get("tables", [])
+        #         for table in tables:
+        #             if table not in relevant_tables:
+        #                 relevant_tables.append(table)
+
+        # If no tables matched, add default
+        # if not relevant_tables:
+        #     relevant_tables.append("raw_sales_rms")
+
+        if any(k in prompt_l for k in ["sales", "volume", "unit", "share"]):
+            relevant_tables.append('raw_sales_rms')
+
+        return relevant_tables
 
     def build_table_context(self, table_name):
         table_info = self.schema_json[table_name]
@@ -1173,25 +1224,97 @@ class SmartQueryEngine:
                 context += f"{field}: Allowed values: {allowed_str}\n"
         return context
 
-    def find_best_kpi_for_prompt(self, prompt: str):
+    # def find_best_kpi_for_prompt(self, prompt: str):
+    #     """
+    #     Returns:
+    #     tuple: (table_name, (kpi_name, kpi_data)) if match found, else (None, (None, None))
+    #     """
+    #     prompt_l = prompt.lower()
+    #     best_match = None
+    #     best_score = 0
+    #     best_table = None
+    #     for kpi_name, kpi_data in self.kpi_dict.items():
+    #         keywords = [kw.lower() for kw in kpi_data.get('keywords', [])]
+    #         score = sum(prompt_l.count(kw) for kw in keywords)
+    #         if score > best_score:
+    #             best_score = score
+    #             best_match = (kpi_name, kpi_data)
+    #             best_table = kpi_data.get('tables', [None])[0]
+    #     if best_match:
+    #         return best_table, best_match
+    #     return None, (None, None)
+
+    # def find_relevant_kpis_for_prompt(self, prompt: str):
+    #     """
+    #     Returns: List of (table_name, kpi_name, kpi_data), sorted by match score (best first)
+    #     """
+    #     prompt_l = prompt.lower()
+    #     kpi_matches = []
+    #     for kpi_name, kpi_data in self.kpi_dict.items():
+    #         keywords = [kw.lower() for kw in kpi_data.get('keywords', [])]
+    #         # print(keywords)
+    #         score = sum(prompt_l.count(kw) for kw in keywords)
+    #         if score > 0:
+    #             tables = kpi_data.get('tables', [None])
+    #             kpi_matches.append((score, tables[0], kpi_name, kpi_data))
+    #     # Sort by descending score
+    #     kpi_matches.sort(reverse=True)
+    #     # Return a list of (table_name, kpi_name, kpi_data)
+    #     return [(table, kpi_name, kpi_data) for score, table, kpi_name, kpi_data in kpi_matches]
+
+    def find_relevant_kpis_for_prompt(self, prompt: str, relevant_tables: list = None):
         """
-        Returns:
-        tuple: (table_name, (kpi_name, kpi_data)) if match found, else (None, (None, None))
+        Returns: List of (table_name, kpi_name, kpi_data), sorted by match score (best first)
+        
+        Only KPIs whose tables intersect with relevant_tables (if provided) are considered.
         """
         prompt_l = prompt.lower()
-        best_match = None
-        best_score = 0
-        best_table = None
+        kpi_matches = []
+
         for kpi_name, kpi_data in self.kpi_dict.items():
-            keywords = [kw.lower() for kw in kpi_data.get('keywords', [])]
-            score = sum(prompt_l.count(kw) for kw in keywords)
-            if score > best_score:
-                best_score = score
-                best_match = (kpi_name, kpi_data)
-                best_table = kpi_data.get('tables', [None])[0]
-        if best_match:
-            return best_table, best_match
-        return None, (None, None)
+            kpi_tables = kpi_data.get('tables', [])
+            # Skip KPIs whose tables don't intersect relevant_tables
+            if relevant_tables is not None:
+                if not any(table in relevant_tables for table in kpi_tables):
+                    continue
+
+            # Now check keywords only for filtered KPIs
+            keywords = kpi_data.get('main_keyword', [])
+            keywords_lower = [kw.lower() for kw in keywords]
+
+            score = sum(prompt_l.count(kw) for kw in keywords_lower)
+            if score > 0:
+                first_table = kpi_tables[0] if kpi_tables else None
+                kpi_matches.append((score, first_table, kpi_name, kpi_data))
+
+        kpi_matches.sort(reverse=True)
+        return [(table, kpi_name, kpi_data) for score, table, kpi_name, kpi_data in kpi_matches]
+
+    # def find_relevant_kpis_for_prompt(self, prompt: str, relevant_tables: list = None, min_score=2, top_n=3):
+    #     prompt_l = prompt.lower()
+    #     kpi_matches = []
+
+    #     for kpi_name, kpi_data in self.kpi_dict.items():
+    #         kpi_tables = kpi_data.get('tables', [])
+    #         # Check table relevance
+    #         if relevant_tables is not None:
+    #             if not any(table in relevant_tables for table in kpi_tables):
+    #                 continue
+
+    #         keywords = [kw.lower() for kw in kpi_data.get('keywords', [])]
+    #         score = sum(prompt_l.count(kw) for kw in keywords)
+    #         # print(score) #for now if the minimum score is 4 it's geving giving less KPI's with perfect match
+    #         if score >= min_score:
+    #             first_table = kpi_tables[0] if kpi_tables else None
+    #             kpi_matches.append((score, first_table, kpi_name, kpi_data))
+
+    #     # Sort by descending score
+    #     kpi_matches.sort(reverse=True)
+        
+    #     # Return top N KPIs only
+    #     return [(table, kpi_name, kpi_data) for score, table, kpi_name, kpi_data in kpi_matches[:top_n]]
+
+
 
     def preprocess_prompt(self, prompt: str) -> str:
         # Collect all known period values from your schema metadata
@@ -1388,8 +1511,9 @@ class SmartQueryEngine:
     # Updated on 20/08/2025:
     def extract_relevant_table(self, prompt: str):
     # Leverage your already-existing pick_relevant_table logic
-        table = self.pick_relevant_table(prompt)
-        return table
+        # table = self.pick_relevant_table(prompt)
+        tables = self.pick_relevant_tables(prompt)
+        return tables
 
     def extract_relevant_columns(self, table_name: str, prompt: str):
         # Returns just the subset of columns in the table that are likely referenced in the prompt/KPI
@@ -1407,10 +1531,32 @@ class SmartQueryEngine:
         # Limit to, say, first 8 for brevity
         return list(dict.fromkeys(relevant_cols))[:8]
 
-    def extract_relevant_kpi(self, prompt: str):
-        # Uses your find_best_kpi_for_prompt logic
-        _, (kpi_name, kpi_data) = self.find_best_kpi_for_prompt(prompt)
-        return kpi_name, kpi_data
+    # def extract_relevant_kpi(self, prompt: str):
+    #     # Uses your find_best_kpi_for_prompt logic
+    #     _, (kpi_name, kpi_data) = self.find_best_kpi_for_prompt(prompt)
+    #     return kpi_name, kpi_data
+
+    def extract_relevant_kpis(self, prompt: str, relevant_tables: List):
+        """
+        Returns: list of (kpi_name, kpi_data)
+        """
+        kpi_list = self.find_relevant_kpis_for_prompt(prompt, relevant_tables)
+        return [(kpi_name, kpi_data) for table, kpi_name, kpi_data in kpi_list]
+    
+    def build_metric_section(self, relevant_kpis):
+        """
+        relevant_kpis: list of (kpi_name, kpi_data) tuples
+        Returns: string suitable for LLM prompt
+        """
+        blocks = []
+        for kpi_name, kpi_data in relevant_kpis:
+            block = (
+                f"KPI: {kpi_name}\n"
+                f"Definition: {kpi_data.get('definition', '')}\n"
+                f"Logic: {kpi_data.get('logic', '')}"
+            )
+            blocks.append(block)
+        return "\n\n".join(blocks)
 
     # Gather Schema related to table.
     def fetch_table_schema(self, table_name):
@@ -1485,41 +1631,53 @@ class SmartQueryEngine:
             return "ERROR"
 
          # 2. KPI/data analysis path: ONLY send required info
-        table = self.extract_relevant_table(prompt)
-        kpi_name, kpi_data = self.extract_relevant_kpi(prompt)
-        if not table or not kpi_data or not kpi_name:
-            return "ERROR"
+        # table = self.extract_relevant_table(prompt)
+        # kpi_name, kpi_data = self.extract_relevant_kpi(prompt)
+        # if not table or not kpi_data or not kpi_name:
+        #     return "ERROR"
 
-        cols = self.extract_relevant_columns(table, prompt)
-        cols_str = ", ".join(cols)
-        metric_section = (
-            f"KPI: {kpi_name}\nDefinition: {kpi_data.get('definition','')}\nLogic: {kpi_data.get('logic','')}"
-        )
+        # cols = self.extract_relevant_columns(table, prompt)
+        # cols_str = ", ".join(cols)
+        # metric_section = (
+        #     f"KPI: {kpi_name}\nDefinition: {kpi_data.get('definition','')}\nLogic: {kpi_data.get('logic','')}"
+        # )
 
-        # You may want to include allowed values for 1-2 key categorical fields only (optional).
-        table_info = self.schema_json[table]
-        cat_info = table_info.get("categorical_info", {})
-        cat_section = ""
-        for field in cat_info:
-            if field in cols:
-                vals = cat_info[field].get("sample_values", [])[:5]
-                if vals:
-                    cat_section += f"\n{field} allowed: {', '.join(map(str, vals))}"
-        # Preprocess prompt to expand time aliases, e.g. 'last year'
+        # # You may want to include allowed values for 1-2 key categorical fields only (optional).
+        # table_info = self.schema_json[table]
+        # cat_info = table_info.get("categorical_info", {})
+        # cat_section = ""
+        # for field in cat_info:
+        #     if field in cols:
+        #         vals = cat_info[field].get("sample_values", [])[:5]
+        #         if vals:
+        #             cat_section += f"\n{field} allowed: {', '.join(map(str, vals))}"
+        # # Preprocess prompt to expand time aliases, e.g. 'last year'
         prompt_fixed = self.preprocess_prompt(prompt)
-        # print(cols_str)
-        # print(cat_section)
+        # # print(cols_str)
+        # # print(cat_section)
 
-        # Fetch schema dynamically from DB
-        table_schema = self.fetch_table_schema(table)
-        print(table_schema, "-------- Table Schema --------")
-        print(metric_section, "-------- Metric Section - KPI --------")
+        # # Fetch schema dynamically from DB
+        # table_schema = self.fetch_table_schema(table)
+        # print(table_schema, "-------- Table Schema --------")
+        # print(metric_section, "-------- Metric Section - KPI --------")
+
+        # For Relevant tables
+        relevant_tables = self.extract_relevant_table(prompt) 
+        relevant_tables_schema = []
+        for table in relevant_tables:
+            schema = smart_engine.fetch_table_schema(table)
+            relevant_tables_schema.append(schema)
+        relevant_full_schema = "\n\n".join(relevant_tables_schema)
+        print(relevant_full_schema)
+
+        # For relevant KPI's
+        relevant_kpis = self.extract_relevant_kpis(prompt, relevant_tables)
+        metric_section = self.build_metric_section(relevant_kpis)
+        print(metric_section)
 
         system_prompt = (
-            f'You are a Postgres SQL expert. The main business table is: "{table}".\n'
-            # f"Columns: {cols_str}\n"
-            # f"{cat_section}\n"
-            f"Table Schema: {table_schema}"
+            f'You are a Postgres SQL expert.\n'
+            f"Table Schema: {relevant_full_schema}"
             f"{metric_section}\n"
             """ *** RULES ***
             - Use only the table and columns above (no schema prefixes). If a table starts with a capital letter, wrap its name in double quotes. 
@@ -1539,6 +1697,7 @@ class SmartQueryEngine:
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt_fixed}
+                    # {"role": "user", "content": prompt}
                 ],
                 temperature=0
             )
@@ -1776,7 +1935,9 @@ if __name__ == "__main__":
     # test_query = "can you provide the share performance of Brand 1 and pack size of 180"    
     # test_query = "can you provide the metric performance of Brand 1"      
     # test_query = "What is the Sales Growth Percentage of Brand 1 with a pack size of 180 for the last year?"    
-    test_query = "What is the Household Penetration Growth of Brand 1 for the last year?"    
+    # test_query = "What is the Household Penetration Growth of Brand 1 for the last year?"    
+    test_query = "What is the Sales growth percentage and Household Penetration Growth of Brand 1 for the last year?"    
+    # test_query = "What is the Household Penetration of Brand 1 for the last year?"    
     # test_query = "Which soap pack sizes are selling the most, especially aloe vera soaps?"    
     # test_query = "What is the Sales Growth Percentage of Brand 2 with aloevera fragrance for the last year?"  
      
@@ -1797,9 +1958,9 @@ if __name__ == "__main__":
     
     # test_query = "FMCG quarterly growth in urban market?"
 
-    result = processor.process_query(test_query)
-    print(result)
-    intent = result['intent']
+    # result = processor.process_query(test_query)
+    # print(result)
+    # intent = result['intent']
 
     # master_sql_query = result['sql_query']
     DB_CONFIG = {
@@ -1818,8 +1979,8 @@ if __name__ == "__main__":
     )
     
     # Use the original prompt or de-anonymized prompt for SQL generation
-    sql = smart_engine.generate_simple_sql(result["original_query"])
-    print(sql)
+    # sql = smart_engine.generate_simple_sql(result["original_query"])
+    # print(sql)
 
     # Validate/fix if desired
 #     validation_results = smart_engine.validate_queries_with_explain([{"prompt": result["original_query"], "sql": sql}])
@@ -1899,10 +2060,30 @@ if __name__ == "__main__":
 
 # Testing each method to get relavant table Info, KPIs and Columns:
     # relevant_table = smart_engine.extract_relevant_table(test_query)    
+    relevant_tables = smart_engine.extract_relevant_table(test_query)    
     # relevant_kpi = smart_engine.extract_relevant_kpi(test_query)    
     # relevant_columns = smart_engine.extract_relevant_columns(relevant_table, test_query)   
 
     # print(relevant_table) 
+    print(relevant_tables)
+    
+    relevant_tables_schema = []
+    for table in relevant_tables:
+        schema = smart_engine.fetch_table_schema(table)
+        relevant_tables_schema.append(schema)
+    
+    print(relevant_tables_schema)
+    relevant_full_schema = "\n\n".join(relevant_tables_schema)
+    print(relevant_full_schema)
+
+    # # For Relevant KPI's
+    relevant_kpis = smart_engine.extract_relevant_kpis(test_query, relevant_tables)
+    print(relevant_kpis)
+    metric_section = smart_engine.build_metric_section(relevant_kpis)
+    print(metric_section)
+
+
+
     # print(relevant_kpi) 
     # print(relevant_columns)   
 
