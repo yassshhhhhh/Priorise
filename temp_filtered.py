@@ -1665,7 +1665,7 @@ class SmartQueryEngine:
         relevant_tables = self.extract_relevant_table(prompt) 
         relevant_tables_schema = []
         for table in relevant_tables:
-            schema = smart_engine.fetch_table_schema(table)
+            schema = self.fetch_table_schema(table)
             relevant_tables_schema.append(schema)
         relevant_full_schema = "\n\n".join(relevant_tables_schema)
         print(relevant_full_schema)
@@ -1858,27 +1858,38 @@ class SmartQueryEngine:
         fixed_results = []
         if not hasattr(self, 'validated_queries'):
             self.validated_queries = []
+
         for item in failed_queries:
             prompt = item.get("prompt")
             sql = item.get("sql")
-            table_name = self.pick_relevant_table(prompt)
-            table_context = self.build_table_context(table_name)
+
+            # Extract multiple relevant tables for this prompt
+            relevant_tables = self.pick_relevant_tables(prompt)  # returns list of table names
+
+            # Build combined table context string for all relevant tables
+            table_contexts = [self.build_table_context(table) for table in relevant_tables]
+            combined_table_context = "\n\n".join(table_contexts)
+
             explain_sql = f"EXPLAIN {sql}"
             error_msg = item.get("error", "")
+
+            # Check if original SQL is valid; continue if so
             try:
                 with psycopg2.connect(**self.db_config) as conn:
                     with conn.cursor() as cursor:
                         cursor.execute(explain_sql)
-                continue  # No fix needed
+                continue  # No fix needed if explain succeeds
             except Exception as e:
                 error_msg = str(e)
+
             messages = [
                 {
                     "role": "system",
                     "content": (
-                        "You are a senior SQL developer. You are given a user prompt, a SQL query, and the EXPLAIN error. "
-                        "Suggest a corrected SQL query fixing the error. Use ONLY the table and columns below.\n"
-                        + table_context +
+                        "You are a senior SQL developer. You are given a user prompt, "
+                        "a SQL query, and the EXPLAIN error. Suggest a corrected SQL query fixing the error. "
+                        "Use ONLY the tables and columns below.\n"
+                        + combined_table_context +
                         "\nReturn only the corrected SQL, no explanations."
                     )
                 },
@@ -1887,13 +1898,17 @@ class SmartQueryEngine:
                     "content": f"User prompt: {prompt}\nOriginal SQL: {sql}\nEXPLAIN Error: {error_msg}"
                 }
             ]
+
             response = self.client.chat.completions.create(
                 model="gpt-4o",
                 messages=messages,
                 temperature=0
             )
-            print(response.usage, "For Fixing LLM Failed LLM Queries")
+            print(response.usage, "For Fixing LLM Failed Queries")
+
             suggestion = response.choices[0].message.content.strip()
+
+            # Validate fix by running EXPLAIN again
             explain_success = False
             try:
                 with psycopg2.connect(**self.db_config) as conn:
@@ -1902,6 +1917,7 @@ class SmartQueryEngine:
                 explain_success = True
             except Exception:
                 explain_success = False
+
             fixed_results.append({
                 "prompt": prompt,
                 "original_sql": sql,
@@ -1909,9 +1925,12 @@ class SmartQueryEngine:
                 "llm_suggestion": suggestion,
                 "explain_success": explain_success
             })
+
             if explain_success:
                 self.validated_queries.append({"prompt": prompt, "sql": suggestion})
+
         return {"fixed_results": fixed_results, "validated_queries": self.validated_queries}
+
 
     def execute_sql(self, sql: str) -> pd.DataFrame:
         try:
@@ -1958,9 +1977,9 @@ if __name__ == "__main__":
     
     # test_query = "FMCG quarterly growth in urban market?"
 
-    # result = processor.process_query(test_query)
-    # print(result)
-    # intent = result['intent']
+    result = processor.process_query(test_query)
+    print(result)
+    intent = result['intent']
 
     # master_sql_query = result['sql_query']
     DB_CONFIG = {
@@ -1979,108 +1998,108 @@ if __name__ == "__main__":
     )
     
     # Use the original prompt or de-anonymized prompt for SQL generation
-    # sql = smart_engine.generate_simple_sql(result["original_query"])
-    # print(sql)
+    sql = smart_engine.generate_simple_sql(result["original_query"])
+    print(sql)
 
     # Validate/fix if desired
-#     validation_results = smart_engine.validate_queries_with_explain([{"prompt": result["original_query"], "sql": sql}])
-#     print(validation_results)
-#     if validation_results["failed"]:
-#         fix_results = smart_engine.fix_failed_queries_with_llm(validation_results["failed"])
-#         print(fix_results)
-#         print(fix_results['fixed_results'][0]['llm_suggestion'])
-#         fixed_sql = fix_results['fixed_results'][0]['llm_suggestion']
-#     print("\n=== Query Processing Results ===")
-#     print(f"Original Query: {result['original_query']}")
-#     print(f"Intent: {result['intent']}")
-#     print(f"Entities: {result['entities']}")
-#     print("\n=== SQL Execution Plan ===")
-#     for step in result["sql_plan"]:
-#         print(f"- {step}")
+    validation_results = smart_engine.validate_queries_with_explain([{"prompt": result["original_query"], "sql": sql}])
+    print(validation_results)
+    if validation_results["failed"]:
+        fix_results = smart_engine.fix_failed_queries_with_llm(validation_results["failed"])
+        print(fix_results)
+        print(fix_results['fixed_results'][0]['llm_suggestion'])
+        fixed_sql = fix_results['fixed_results'][0]['llm_suggestion']
+    print("\n=== Query Processing Results ===")
+    print(f"Original Query: {result['original_query']}")
+    print(f"Intent: {result['intent']}")
+    print(f"Entities: {result['entities']}")
+    print("\n=== SQL Execution Plan ===")
+    for step in result["sql_plan"]:
+        print(f"- {step}")
     
-#     # Get and display relevant KPIs
-#     selected = kpi_selector.select_relevant_kpis(
-#         prompt=result['original_query'], 
-#         intent=result['intent']  # Fixed variable name from intnt to result['intent']
-#     )
-#     # print(selected, "Debug")
-#     if selected:
-#         print("\n=== Recommended KPIs ===")
-#         for kpi, details in selected.items():
-#             print(f"\n{kpi}:")
-#             print(f"  Definition: {details['definition']}")
-#             print(f"  Calculation: {details['logic']}")
-#             print(f"  Tables: {', '.join(details['tables'])}")
+    # Get and display relevant KPIs
+    selected = kpi_selector.select_relevant_kpis(
+        prompt=result['original_query'], 
+        intent=result['intent']  # Fixed variable name from intnt to result['intent']
+    )
+    # print(selected, "Debug")
+    if selected:
+        print("\n=== Recommended KPIs ===")
+        for kpi, details in selected.items():
+            print(f"\n{kpi}:")
+            print(f"  Definition: {details['definition']}")
+            print(f"  Calculation: {details['logic']}")
+            print(f"  Tables: {', '.join(details['tables'])}")
     
 
-#     DB_CONFIG = {
-#             "host": os.getenv("DB_HOST"),
-#             "database": os.getenv("DB_NAME"),
-#             "user": os.getenv("DB_USER"),
-#             "password": os.getenv("DB_PASSWORD"),
-#             "port": os.getenv("DB_PORT")
-#         }
+    DB_CONFIG = {
+            "host": os.getenv("DB_HOST"),
+            "database": os.getenv("DB_NAME"),
+            "user": os.getenv("DB_USER"),
+            "password": os.getenv("DB_PASSWORD"),
+            "port": os.getenv("DB_PORT")
+        }
 
-# #     engine = SmartQueryEngine(client=client, intent=intent, schema_json=schema_json, db_config=DB_CONFIG)
-#     engine = SmartQueryEngine(
-#         client=client,
-#         # intent=intent,
-#         schema_json=schema_json,
-#         db_config=DB_CONFIG,  # This must be properly configured
-#         kpi_dict= kpi_dict
-#     )
-#     # print(engine)
-#     result = engine.handle_prompt(test_query, intent=intent)
-#     print('-----------')
-#     print(result, "Debug")
-#     print('-----------')
+#     engine = SmartQueryEngine(client=client, intent=intent, schema_json=schema_json, db_config=DB_CONFIG)
+    engine = SmartQueryEngine(
+        client=client,
+        # intent=intent,
+        schema_json=schema_json,
+        db_config=DB_CONFIG,  # This must be properly configured
+        kpi_dict= kpi_dict
+    )
+    # print(engine)
+    result = engine.handle_prompt(test_query, intent=intent)
+    print('-----------')
+    print(result, "Debug")
+    print('-----------')
 
 
-#     # Type-safe checking
-#     if hasattr(result, "get") and "sub_prompts_sql" in result:
-#         validation = engine.validate_queries_with_explain(result["sub_prompts_sql"])
-#         print("validation", validation)
+    # Type-safe checking
+    if hasattr(result, "get") and "sub_prompts_sql" in result:
+        validation = engine.validate_queries_with_explain(result["sub_prompts_sql"])
+        print("validation", validation)
         
-#         print("\nSuccessful queries:")
-#         for success in validation["successful"]:
-#             print(f"- {success['prompt']}")
-#             print(f"  SQL: {success['sql'][:100]}...")  # Show first 100 chars          
+        print("\nSuccessful queries:")
+        for success in validation["successful"]:
+            print(f"- {success['prompt']}")
+            print(f"  SQL: {success['sql'][:100]}...")  # Show first 100 chars          
 
-#         print("\nFailed queries:")
-#         for failure in validation["failed"]:
-#             print(f"- {failure['prompt']}")
-#             print(f"  Error: {failure['error']}") 
+        print("\nFailed queries:")
+        for failure in validation["failed"]:
+            print(f"- {failure['prompt']}")
+            print(f"  Error: {failure['error']}") 
 
-#         # fix_results = engine.fix_failed_queries_with_llm(validation["failed"])
-#         # print(fix_results)
-#     else:
-#         print("Unexpected result format:", result)
+        # fix_results = engine.fix_failed_queries_with_llm(validation["failed"])
+        # print(fix_results)
+    else:
+        print("Unexpected result format:", result)
 
 
 
 # Testing each method to get relavant table Info, KPIs and Columns:
     # relevant_table = smart_engine.extract_relevant_table(test_query)    
-    relevant_tables = smart_engine.extract_relevant_table(test_query)    
+    # relevant_tables = smart_engine.extract_relevant_table(test_query)    
     # relevant_kpi = smart_engine.extract_relevant_kpi(test_query)    
     # relevant_columns = smart_engine.extract_relevant_columns(relevant_table, test_query)   
 
     # print(relevant_table) 
-    print(relevant_tables)
+    # print(relevant_tables)
     
-    relevant_tables_schema = []
-    for table in relevant_tables:
-        schema = smart_engine.fetch_table_schema(table)
-        relevant_tables_schema.append(schema)
+    # relevant_tables_schema = []
+    # for table in relevant_tables:
+    #     schema = smart_engine.fetch_table_schema(table)
+    #     relevant_tables_schema.append(schema)
     
-    print(relevant_tables_schema)
-    relevant_full_schema = "\n\n".join(relevant_tables_schema)
-    print(relevant_full_schema)
+    # print(relevant_tables_schema)
+    # relevant_full_schema = "\n\n".join(relevant_tables_schema)
+    # print(relevant_full_schema)
 
-    # # For Relevant KPI's
-    relevant_kpis = smart_engine.extract_relevant_kpis(test_query, relevant_tables)
-    print(relevant_kpis)
-    metric_section = smart_engine.build_metric_section(relevant_kpis)
-    print(metric_section)
+    # # # For Relevant KPI's
+    # relevant_kpis = smart_engine.extract_relevant_kpis(test_query, relevant_tables)
+    # print(relevant_kpis)
+    # metric_section = smart_engine.build_metric_section(relevant_kpis)
+    # print(metric_section)
 
 
 
