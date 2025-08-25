@@ -82,6 +82,50 @@ if "current_query" not in st.session_state:
 if 'main_answer_df' not in st.session_state:
     st.session_state['main_answer_df'] = None
 
+# if "current_query_token_usage" not in st.session_state:
+#     st.session_state.current_query_token_usage = 0
+# token_usage_placeholder = st.empty()
+
+def add_token_usage(token_count: int, query_text: str, usage_type: str = "LLM Query"):
+    if "current_query_token_usage" not in st.session_state:
+        st.session_state.current_query_token_usage = 0
+    if "token_usage_history" not in st.session_state:
+        st.session_state.token_usage_history = []
+
+    st.session_state.current_query_token_usage += token_count
+    st.session_state.token_usage_history.append({
+        "query": query_text,
+        "tokens": token_count,
+        "type": usage_type
+    })
+
+token_placeholder = st.empty()
+
+def display_token_usage():
+    token_count = st.session_state.get("current_query_token_usage", 0)
+    token_placeholder.markdown(
+        f"""
+        <div style="
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            background-color: #f1f1f1;
+            padding: 8px 12px;
+            border-radius: 8px;
+            box-shadow: 0 0 8px rgba(0,0,0,0.1);
+            font-size: 14px;
+            color: #333;
+            z-index: 1000;
+        ">
+            Total tokens used: <b>{token_count}</b>
+        </div>
+        """, unsafe_allow_html=True
+    )
+
+# Call this once per run, after token updates (or at end of main script)
+# display_token_usage()
+
+
 # Initialize lists for storing processed documents
 pdf_texts = []
 ppt_texts = []
@@ -211,6 +255,9 @@ with tab1:
     with col1:
         if st.button("Sql Query", key="ask_btn"):
             if temp_query:
+                # Reset token usage for the new query
+                st.session_state.current_query_token_usage = 0
+
                 st.session_state.should_query = True
                 st.session_state['chat_history'].append({"query": temp_query, "response": None})
                 st.session_state.current_query = temp_query  # Store the current query
@@ -1211,11 +1258,13 @@ with tab1:
             # Before filtering the result, I want give sql table for the master query.
             result = y_processor.process_query(st.session_state.last_query)
             y_intent = result['intent']
+            add_token_usage(result['total_tokens'], st.session_state.last_query, usage_type="Intent Classification")
 
             engine = st.session_state.engine
 
-            init_sql = engine.generate_simple_sql(result["original_query"])
+            init_sql, tokens_used_for_init_sql = engine.generate_simple_sql(result["original_query"])
             # st.code(init_sql, language="sql")
+            add_token_usage(tokens_used_for_init_sql, result["original_query"], usage_type="Initial SQL generation")
 
             # Validate/fix if desired
             validation_results = engine.validate_queries_with_explain([{"prompt": result["original_query"], "sql": init_sql}])
@@ -1223,6 +1272,7 @@ with tab1:
             if validation_results["failed"]:
                 fix_results = engine.fix_failed_queries_with_llm(validation_results["failed"])
                 # print(fix_results)
+                add_token_usage(fix_results['fixed_results'][0]['token_used'], result["original_query"], usage_type="For Fixing failed queries.")
                 print(fix_results['fixed_results'][0]['llm_suggestion'])
                 fixed_sql = fix_results['fixed_results'][0]['llm_suggestion']
                 cleaned_query = fixed_sql.replace("```sql", "").replace("```", "").replace("\n", "").strip()
@@ -1249,6 +1299,9 @@ with tab1:
             filtered_result = engine.handle_prompt(st.session_state.last_query, intent=y_intent)
             print("###############################################")
             print(filtered_result)
+            if y_intent != 'simple':
+                add_token_usage(filtered_result['total_tokens'], st.session_state.last_query, usage_type="Drill down question with SQL generation")
+
             print("###############################################")
             # Store results in session state for next step
             if y_intent == 'simple':
@@ -1338,7 +1391,7 @@ with tab1:
                 if validation_results["failed"]:
                     fix_results = engine.fix_failed_queries_with_llm(validation_results["failed"])
                     # print(fix_results)
-                    
+                    add_token_usage(fix_results['fixed_results'][0]['token_used'], prompt, usage_type="For Fixing failed queries.")
                     sql_cleaned_query = sql.replace("```sql", "").replace("```", "").replace("\n", "").strip()
                     result_df = engine.execute_sql(sql_cleaned_query)
                     st.dataframe(result_df)
@@ -2321,6 +2374,7 @@ with tab1:
                     finally:
                         st.session_state.should_query = False
 
+
         # Clean up ALL checklist state for next use
         st.session_state.selected_prompts = None
         st.session_state.checkbox_states = []
@@ -2328,6 +2382,7 @@ with tab1:
         st.session_state.filtered_results = None
         st.session_state.intent_type = None
 
+    display_token_usage()
 
     # Passing the query to filtered.py script 
     # y_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))

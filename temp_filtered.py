@@ -129,7 +129,7 @@ kpi_dict = {
         "logic": "((SUM(CASE WHEN {period_col} = '{end_period}' THEN sales_value ELSE 0 END) - " 
                  "SUM(CASE WHEN {period_col} = '{start_period}' THEN sales_value ELSE 0 END)) / " 
                  "NULLIF(SUM(CASE WHEN {period_col} = '{start_period}' THEN sales_value ELSE 0 END),0)) * 100",
-        "tables": ["raw_sales_rms"],
+        "tables": ["PRI_sales_rms"],
         "main_keyword": ["sales"],
         "keywords": ["sales", "growth", "percentage", "performance"]
     },
@@ -138,7 +138,7 @@ kpi_dict = {
         "logic": "((SUM(CASE WHEN {period_col} = '{end_period}' THEN sales_vol ELSE 0 END) - " 
                  "SUM(CASE WHEN {period_col} = '{start_period}' THEN sales_vol ELSE 0 END)) / " 
                  "NULLIF(SUM(CASE WHEN {period_col} = '{start_period}' THEN sales_vol ELSE 0 END),0)) * 100",
-        "tables": ["raw_sales_rms"],
+        "tables": ["PRI_sales_rms"],
         "main_keyword": ["volume"],
         "keywords": ["volume", "growth", "percentage", "performance"]
     },
@@ -147,7 +147,7 @@ kpi_dict = {
         "logic": "((SUM(CASE WHEN {period_col} = '{end_period}' THEN sales_units ELSE 0 END) - " 
                  "SUM(CASE WHEN {period_col} = '{start_period}' THEN sales_units ELSE 0 END)) / " 
                  "NULLIF(SUM(CASE WHEN {period_col} = '{start_period}' THEN sales_units ELSE 0 END),0)) * 100",
-        "tables": ["raw_sales_rms"],
+        "tables": ["PRI_sales_rms"],
         "main_keyword": ["unit"],
         "keywords": ["unit", "growth", "percentage", "performance"]
     },
@@ -162,7 +162,7 @@ kpi_dict = {
             NULLIF(SUM(sales_value) FILTER (WHERE {period_col} = '{start_period}' {category_filter}), 0) * 100)
             )""",
         ),
-        "tables": ["raw_sales_rms"],
+        "tables": ["PRI_sales_rms"],
         "main_keyword": ["share"],
         "keywords": ["share", "change", "value", "category", "market"]
     },
@@ -177,7 +177,7 @@ kpi_dict = {
             NULLIF(SUM(sales_vol) FILTER (WHERE {period_col} = '{start_period}' {category_filter}), 0) * 100)
             )""",
         ),
-        "tables": ["raw_sales_rms"],
+        "tables": ["PRI_sales_rms"],
         "main_keyword": ["share"],
         "keywords": ["share", "change", "volume", "category", "market"]
     },
@@ -207,10 +207,10 @@ kpi_dict = {
         "definition": "Lists the top-selling pack sizes by sales volume, optionally filtered by product/brand/item.",
         "logic": (
             "SELECT basepacksize, SUM(sales_vol) AS total_volume "
-            "FROM raw_sales_rms "
+            "FROM PRI_sales_rms "
             "WHERE {filters} "
         ),
-        "tables": ["raw_sales_rms"],
+        "tables": ["PRI_sales_rms"],
         "main_keyword": ["top"],
         "keywords": ["top", "pack size", "selling", "most", "aloe vera", "soap", "volume"]
     },
@@ -221,11 +221,10 @@ kpi_dict = {
 
 schema_json = {
 
-    "raw_sales_rms": {
+    "PRI_sales_rms": {
         "columns": ["day_of_year", "sales_value", "sales_vol", "sales_units", "price_per_sales_unit", "wghtd_dist_handling", "relative_numeric_distribution_handling_product", 
-                    "value_shr_in_handlers_product", "number_of_stores_retailing", "numeric_out_of_stock", "year", "month", "week", "quarter", "day", 
-                    "day_of_week", "basepacksize", "level", "category", "segment", "manufacturer", "brand", "sub_brand", "item", "medicinal_form", "day_name", "month_name", "pack_type", 
-                    "purpose", "users", "fragrance_ingredients", "period", "market"],
+                    "value_shr_in_handlers_product", "number_of_stores_retailing", "numeric_out_of_stock", "basepacksize", "level", "category", "segment", "manufacturer", 
+                    "brand", "sub_brand", "item", "medicinal_form", "pack_type", "purpose", "users", "fragrance_ingredients", "year", "market", "launchdate"],
         "categorical_info": {
             "market": {
                 "definition": "Geographic or retail area (e.g., All India, Urban + Rural)",
@@ -267,6 +266,10 @@ schema_json = {
                 "definition": "Size of pack (e.g., 180 gm)",
                 "sample_values": ["1000", "180", "340", "440", "640", "80", "4.5", "3.5", "3.6", "4.6"]
             },
+            "launchdate": {
+                "definition": "Date the product when it was launched",
+                "sample_values": ["2018-03-01 00:00:00", "2017-09-01 00:00:00", "2019-08-01 00:00:00", "2020-09-01 00:00:00"]
+            },
             "pack_type": {
                 "definition": "Type of pack (e.g., BOTTLE, BOX)",
                 "sample_values": ["BOTTLE", "CDBOX", "TUBES", "SAMPLE BAR"]
@@ -283,9 +286,9 @@ schema_json = {
                 "definition": "Fragrance type or if unspecified",
                 "sample_values": ["ALOE VERA", "MUSK", "JASMINE", "UNSPECIFIED", "GARDENIA", "VETIVER", "LAVENDER", "ORANGE BLOSSOM", "BASIL", "PEONY", "HONEYSUCKLE", "ROSE", "APPLE", "TUBEROSE", "LILAC", "CHAMOMILE", "OCEAN BREEZE"]
             },
-            "period": {
-                "definition": "Reporting time period (e.g., MAT OCT'23)",
-                "sample_values": ["MAT OCT'22", "MAT OCT'23", "MAT OCT'24"]
+            "year": {
+                "definition": "Reporting time period",
+                "sample_values": [2021, 2022, 2023, 2024]
             }, 
             "sales_value": {
                 "definition": "Revenue in currency (₹ or other), calculated as sales_unit*price_unit",
@@ -327,9 +330,9 @@ schema_json = {
         },
     },
 
-    "raw_brand_loss_gain": {
-        "columns": ["incr_or_decr_in_cons_of_ref_brand", "entry_to_or_lapse_from_category", "addn_or_deletion_from_repertoire", "year", "brand_net_shift",
-                    "total_shift_to_or_from_ref_brand", "brand", "region"],
+    "PRI_brand_loss_gain": {
+        "columns": ["increase_or_decrease_in_consumption_of_reference_brand", "entry_to_or_lapse_from_category", "addition_or_deletion_from_repertoire", "year", "brand_net_shift",
+                    "total_shift_to_or_from_reference_brand", "brand", "region"],
         "categorical_info": {
             "brand": {
                 "definition": "Main brand name being evaluated for gains or losses",
@@ -339,7 +342,7 @@ schema_json = {
                 "definition": "Geographic or retail area (e.g., All India, Urban + Rural)",
                 "sample_values": ["All India", "All India Urban", "All India Rural", "Gujarat", "Karnataka", "Maharashtra", "Rajasthan", "Up"]
             },
-            "incr_or_decr_in_cons_of_ref_brand": {
+            "increase_or_decrease_in_consumption_of_reference_brand": {
                 "definition": "Net gain or loss in consumption volume for the reference brand (the main brand being evaluated), based on consumer behavior changes.",
                 "sample_values": [5.775, 20.528, 108.388]
             },
@@ -351,11 +354,11 @@ schema_json = {
                 "definition": "Captures whether households started or stopped purchasing the overall category, not just one brand.",
                 "sample_values": [0.836, -4.117, 45.607, -11.895]
             },
-            "addn_or_deletion_from_repertoire": {
+            "addition_or_deletion_from_repertoire": {
                 "definition": "Tracks whether the reference brand was added to or removed from a household’s set of brands they typically purchase within the category.",
                 "sample_values": [43.134, -150.691, 258.073, 1168.943]
             },
-            "total_shift_to_or_from_ref_brand": {
+            "total_shift_to_or_from_reference_brand": {
                 "definition": "How many households moved in or out of the reference brand (Ref. Brand), by switching from or to other brands within the same category.",
                 "sample_values": [-57.663, 21.988, 398.923, -37.639]
             },
@@ -366,8 +369,8 @@ schema_json = {
         },
     },
 
-    "raw_entry_erosion_consumption": {
-        "columns": ["metric_new_triers", "metric_retainer", "metric_lapsers","period", "brand", "brand_filtered", "market"],
+    "PRI_entry_erosion_consumption": {
+        "columns": ["metric_new_triers", "metric_retainer", "metric_lapsers", "year", "brand", "brand_filtered", "market"],
         "categorical_info": {
             "brand": {
                 "definition": "Main brand category name",
@@ -381,9 +384,9 @@ schema_json = {
                 "definition": "Geographic or retail area (e.g., All India, Urban + Rural)",
                 "sample_values": ["ALL India", "All India Urban", "All India Rural", "Gujarat", "Karnataka", "Maharashtra", "Rajasthan", "UP"]
             },
-            "period": {
-                "definition": "Reporting time period (e.g., MAT OCT'23)",
-                "sample_values": ["MAT OCT'21", "MAT OCT'22", "MAT OCT'23", "MAT OCT'24"]
+            "year": {
+                "definition": "Reporting time period",
+                "sample_values": [2021, 2022, 2023, 2024]
             },
             "metric_new_triers": {
                 "definition": "Percentage of people who bought the brand for the first time (new customers)",
@@ -398,85 +401,10 @@ schema_json = {
                 "sample_values": [ 0.30534352344634, 0.260893684065276, 0.303039503028793]
             },
         },
-    },
-
-    "raw_iop_hh_consumption": {
-        "columns": ["market", "item", "period", "avg_cons", "avg_fop", "avg_nob", "avg_nop", "avg_poc", "avg_spent", "hh", "hh_gr_percentage",
-                    "penetration_percentage", "sor_val", "sor_vol", "val", "vol", "brand_filtered"],
-        "categorical_info": {
-            "item": {
-                "definition": "Grouped category item name",
-                "sample_values": ["Product Total (000s)", "TG Base (000s)", "Universe (000s)", "[SOAP] ANY 111 - 210GM NEW", "[SOAP] ANY 26 - 69GM NEW [ANY COSMETIC SOAP]"]
-            },
-            "market": {
-                "definition": "Geographic or retail area (e.g., All India, Urban + Rural)",
-                "sample_values": ["ALL India", "All India Urban", "All India Rural", "Gujarat", "Karnataka", "Maharashtra", "Rajasthan", "UP"]
-            },
-            "period": {
-                "definition": "Reporting time period (e.g., MAT OCT'23)",
-                "sample_values": ["MAT OCT'21", "MAT OCT'22", "MAT OCT'23", "MAT OCT'24"]
-            },
-            "brand_filtered": {
-                "definition": "Refined or grouped brand view",
-                "sample_values": ["Other", "Brand 1", "Brand 2", "Brand 11", "Brand 20"]
-            },
-            "avg_cons": {
-                "definition": "Average consumption per household",
-                "sample_values": [0.89, 0.964, 305199.401, 82090]
-            },
-            "avg_fop": {
-                "definition": "Average frequency of purchase per household",
-                "sample_values": [10.296, 305199.401, 82884, 2.292]
-            },
-            "avg_nob": {
-                "definition": "Average number of brands bought per household (brand switching behavior)",
-                "sample_values": [3.401, 305199.401, 82090, 4.425]
-            },
-            "avg_nop": {
-                "definition": "The average number of purchase occasions (shopping trips or times the product was bought) per household during the period.",
-                "sample_values": [137.466, 154.088, 313490.563, 82090]
-            },
-            "avg_poc": {
-                "definition": "the average quantity of product purchased per purchase occasion (trip) by buying households over a defined period",
-                "sample_values": [26.824, 305199.401, 82884, 1.849]
-            },
-            "avg_spent": {
-                "definition": "Average amount spent per household",
-                "sample_values": [283.809, 322035.97, 290.313, 62.688]
-            },
-            "hh": {
-                "definition": "Number of households purchasing the brand/category",
-                "sample_values": [295152.1, 304027.691, 312764.221, 82090]
-            },
-            "hh_gr_percentage": {
-                "definition": "Percentage of growth in household count over previous year",
-                "sample_values": [-3.85567227693214, 1.49877741793223, 145.009542195663, -12.3495655008658]
-            },
-            "penetration_percentage": {
-                "definition": "Percentage of total market households that bought the brand/category",
-                "sample_values": [0.136648102399126, 0.0965325780570585, 0.00474113497321433]
-            },
-            "sor_val": {
-                "definition": "Share of requirements by value (how much of total spend is on the brand)",
-                "sample_values": [100, 305199.401, 322035.97, 42.774]
-            },
-            "sor_vol": {
-                "definition": "Share of requirements by volume (how much of total quantity is from the brand)",
-                "sample_values": [100, 25, 305199.401, 22.162]
-            },
-            "val": {
-                "definition": "Total value of sales (in currency)",
-                "sample_values": [83766.704, 111854.283, 330844.863]
-            },
-            "vol": {
-                "definition": "Total quantity sold (in litres, ml, grams, etc.)",
-                "sample_values": [262664.011, 305199.401, 83628]
-            },
-        },
     },     
 
     "PRI_iop_hh_consumption": {
-        "columns": ["market", "item", "item_type", "pack_size", "period", "avg_cons", "avg_fop", "avg_nob", "avg_nop", "avg_poc", "avg_spent", "hh", "hh_gr_percentage",
+        "columns": ["market", "item", "item_type", "pack_size", "year", "avg_cons", "avg_fop", "avg_nob", "avg_nop", "avg_poc", "avg_spent", "hh", "hh_gr_percentage",
                     "penetration_percentage", "sor_val", "sor_vol", "val", "vol", "brand_filtered"],
         "categorical_info": {
             "item": {
@@ -495,11 +423,11 @@ schema_json = {
                 "definition": "Geographic or retail area (e.g., All India, Urban + Rural)",
                 "sample_values": ["ALL India", "All India Urban", "All India Rural", "Gujarat", "Karnataka", "Maharashtra", "Rajasthan", "UP"]
             },
-            "period": {
-                "definition": "Reporting time period (e.g., MAT OCT'23)",
-                "sample_values": ["MAT OCT'21", "MAT OCT'22", "MAT OCT'23", "MAT OCT'24"]
+            "year": {
+                "definition": "Reporting time period",
+                "sample_values": [2021, 2022, 2023, 2024]
             },
-            "brand_filtered": {
+            "brand_filtered": { 
                 "definition": "Refined or grouped brand view",
                 "sample_values": ["Other", "Brand 1", "Brand 2", "Brand 11", "Brand 20"]
             },
@@ -578,13 +506,13 @@ class QueryProcessor:
     def __init__(self, openai_api_key: str):
         """Initialize with OpenAI API key"""
         self.client = openai.OpenAI(api_key=openai_api_key)
-        self.sql_cache = {}  # Cache dictionary for SQL queries keyed by prompt string
+        # self.sql_cache = {}  # Cache dictionary for SQL queries keyed by prompt string
         
     def classify_intent(self, prompt: str) -> str:
         # Check cache first
-        if prompt in self.sql_cache:
-            print("Returning cached SQL query for classifying Intent.")
-            return self.sql_cache[prompt]
+        # if prompt in self.sql_cache:
+        #     print("Returning cached SQL query for classifying Intent.")
+        #     return self.sql_cache[prompt]
         
         """Classify user prompt into intent categories (simple, analysis, compare)"""
         messages = [
@@ -603,9 +531,10 @@ class QueryProcessor:
             temperature=0
         )
         print(response.usage, "For Intent Classification")
+        print(response.usage.total_tokens, "Total tokens For Intent Classification")
         # Save to cache
-        self.sql_cache[prompt] = response.choices[0].message.content.strip().lower()
-        return response.choices[0].message.content.strip().lower()
+        # self.sql_cache[prompt] = response.choices[0].message.content.strip().lower()
+        return response.choices[0].message.content.strip().lower(), int(response.usage.total_tokens)
 
     def extract_entities(self, prompt: str) -> dict:
         """Extract years, brands, and pack sizes from the prompt"""
@@ -717,7 +646,7 @@ class QueryProcessor:
     def process_query(self, query: str) -> dict:
         """Complete processing pipeline for a user query"""
         # Step 1: Intent classification
-        intent = self.classify_intent(query)
+        intent, total_tokens = self.classify_intent(query)
         
         # Step 2: Entity extraction
         entities = self.extract_entities(query)
@@ -764,6 +693,7 @@ class QueryProcessor:
             "anonymized_template": anonymized,
             "mapping": mapping,
             "deanon_result": deanon,
+            "total_tokens": total_tokens,
             # "sql_query": sql_query,   # THIS IS THE KEY CHANGE
             "sql_plan": self.generate_sql_plan(intent, entities)
         }
@@ -917,31 +847,31 @@ class KPISelector:
                 "definition": "Total sales growth percentage",
                 # "logic": "((SUM(sales_value) - SUM(sales_value)) / SUM(sales_value)) * 100", #(Sales Value TY – Sales Value LY) ÷ Sales Value LY × 100
                 "logic": "((Sales Value this year – Sales Value last year) ÷ Sales Value last year) × 100)", 
-                "tables": ["raw_sales_rms"],
+                "tables": ["PRI_sales_rms"],
                 "keywords": ["sales", "growth", "percentage","performance"]
             },
             "Volume Growth Percentage": {
                 "definition": "Total volume growth percentage",
                 "logic": "((SUM(sales_vol) - SUM(sales_vol)) / SUM(sales_vol)) * 100", #(Sales Value TY – Sales Value LY) ÷ Sales Value LY × 100
-                "tables": ["raw_sales_rms"],
+                "tables": ["PRI_sales_rms"],
                 "keywords": ["volume", "growth", "percentage", "performance"]
             },
             "Unit Growth Percentage": {
                 "definition": "Total Unit growth percentage",
                 "logic": "((SUM(Unit Value for End Period) - SUM(Unit Value for Start Period)) / SUM(Unit Value for Start Period)) * 100", #(Sales Value TY – Sales Value LY) ÷ Sales Value LY × 100
-                "tables": ["raw_sales_rms"],
+                "tables": ["PRI_sales_rms"],
                 "keywords": ["unit", "growth", "percentage"]
             },
             "Share Change Value": {
                 "definition": "Share Change Value",
                 "logic": "(((Brand share Value ÷ Category Value End Period)  * 100) – ((Brand share Value ÷ Category Value Start Period) * 100))", 
-                "tables": ["raw_sales_rms"],
+                "tables": ["PRI_sales_rms"],
                 "keywords": ["Share", "Change", "Value", "Category"]
             },
             "Share Change Volume": {
                 "definition": "Share Change Volume",
                 "logic": "(((Brand share Volume ÷ Category Volume End Period)  * 100) – ((Brand share Volume ÷ Category Volume Start Period) * 100))", 
-                "tables": ["raw_sales_rms"],
+                "tables": ["PRI_sales_rms"],
                 "keywords": ["Share", "Change", "Volume", "Category"]
             },
             # This for IO HH Consumption.
@@ -956,29 +886,29 @@ class KPISelector:
             "Metric Retainer": {
                 "definition": "Percentage of buyers who bought the brand again (repeat users)",
                 "logic": "(Repeat_Buyers / Previous_Buyers) * 100",
-                "tables": ["raw_entry_erosion_consumption"],
+                "tables": ["PRI_entry_erosion_consumption"],
                 "keywords": ["Metric", "Retainer", "Percentage", "Repeat", "Buyers"]
             },
             "Metric Lapsers": {
                 "definition": "Percentage of previous buyers who did not buy the brand again (lost users)",
                 "logic": "(Lapsed_Buyers / Previous_Buyers) * 100",
-                "tables": ["raw_entry_erosion_consumption"],
+                "tables": ["PRI_entry_erosion_consumption"],
                 "keywords": ["Metric", "Lapsers", "Percentage", "Lost", "Buyers"]
             },
             "Metric New Triers": {
                 "definition": "Percentage of people who bought the brand for the first time (new customers)",
                 "logic": "(New_Customers / Total_Customers) * 100",
-                "tables": ["raw_entry_erosion_consumption"],
+                "tables": ["PRI_entry_erosion_consumption"],
                 "keywords": ["Metric", "New", "Percentage", "Triers", "Buyers"]
             },
             "Top Pack Size by Sales Volume": {
                 "definition": "Lists the top-selling pack sizes by sales volume, optionally filtered by product/brand/item.",
                 "logic": (
                     "SELECT basepacksize, SUM(sales_vol) AS total_volume "
-                    "FROM raw_sales_rms "
+                    "FROM PRI_sales_rms "
                     "WHERE {filters} "
                 ),
-                "tables": ["raw_sales_rms"],
+                "tables": ["PRI_sales_rms"],
                 "keywords": ["top", "pack size", "selling", "most", "aloe vera", "soap", "volume"]
             },
             # Add more KPI's - This is for raw_brand_loss_gain
@@ -1186,10 +1116,10 @@ class SmartQueryEngine:
             relevant_tables.append('PRI_iop_hh_consumption')
 
         if any(k in prompt_l for k in ["brand loss", "gain", "repertoire", "brand_net_shift"]):
-            relevant_tables.append("raw_brand_loss_gain")
+            relevant_tables.append("PRI_brand_loss_gain")
 
         if any(k in prompt_l for k in ["triers", "retainer", "lapsers"]):
-            relevant_tables.append("raw_entry_erosion_consumption")
+            relevant_tables.append("PRI_entry_erosion_consumption")
 
         # # Check KPI keywords
         # for kpi_name, kpi_data in self.kpi_dict.items():
@@ -1200,12 +1130,13 @@ class SmartQueryEngine:
         #             if table not in relevant_tables:
         #                 relevant_tables.append(table)
 
-        # If no tables matched, add default
-        # if not relevant_tables:
-        #     relevant_tables.append("raw_sales_rms")
 
         if any(k in prompt_l for k in ["sales", "volume", "unit", "share"]):
-            relevant_tables.append('raw_sales_rms')
+            relevant_tables.append('PRI_sales_rms')
+
+        # If no tables matched, add default
+        if not relevant_tables:
+            relevant_tables.append("PRI_sales_rms")
 
         return relevant_tables
 
@@ -1583,7 +1514,7 @@ class SmartQueryEngine:
         # Check cache first
         if prompt in self.sql_cache:
             print("Returning cached SQL query for generating SQL.")
-            return self.sql_cache[prompt]
+            return self.sql_cache[prompt], 0
         
         # 1. Is it a meta/schema question? Answer directly.
         # schema_str = self.format_schema() if hasattr(self, "format_schema") else ""
@@ -1619,6 +1550,7 @@ class SmartQueryEngine:
                     temperature=0
                 )
                 print(response.usage, "For Simple Questions")
+                print(response.usage.total_tokens, "Total tokens For Simple Questions")
                 sql = response.choices[0].message.content.strip()
                 # Save to cache
                 self.sql_cache[prompt] = sql
@@ -1627,7 +1559,7 @@ class SmartQueryEngine:
                 print(f"⚠️ Error during LLM call: {e}")
                 return "ERROR"
             if sql.upper().startswith(('SELECT', 'WITH')) or sql == 'ERROR':
-                return sql
+                return sql, int(response.usage.total_tokens)
             return "ERROR"
 
          # 2. KPI/data analysis path: ONLY send required info
@@ -1652,7 +1584,8 @@ class SmartQueryEngine:
         #         if vals:
         #             cat_section += f"\n{field} allowed: {', '.join(map(str, vals))}"
         # # Preprocess prompt to expand time aliases, e.g. 'last year'
-        prompt_fixed = self.preprocess_prompt(prompt)
+        # prompt_fixed = self.preprocess_prompt(prompt)
+        # print(prompt_fixed)
         # # print(cols_str)
         # # print(cat_section)
 
@@ -1681,8 +1614,6 @@ class SmartQueryEngine:
             f"{metric_section}\n"
             """ *** RULES ***
             - Use only the table and columns above (no schema prefixes). If a table starts with a capital letter, wrap its name in double quotes. 
-            - For dates, 'year', 'month', 'week', 'day' are INTEGER; 'period' uses values like 'MAT OCT''24'.
-            - 'last year' = latest full year from above.
             - Prevent division by zero (use NULLIF or CASE).
             - Whenever there is a string comparision always perform the comparision in the same case(lower or upper) in the SQL query.
             - Match the condition strings given by the users to the nearest possible value in the conditional columns. For Example: If user is asking about 'aloevera' the user intends to enquire about 'aloe vera' form the fragrance_ingredients column.
@@ -1696,7 +1627,7 @@ class SmartQueryEngine:
                 model="gpt-4",
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt_fixed}
+                    {"role": "user", "content": prompt}
                     # {"role": "user", "content": prompt}
                 ],
                 temperature=0
@@ -1705,13 +1636,14 @@ class SmartQueryEngine:
             # Save to cache
             self.sql_cache[prompt] = sql
             print(response.usage, "For Analysis Questions")  # Optional: see tokens used
+            print(response.usage.total_tokens, "Total tokens For Analysis Questions")
             print("\n=== LLM RAW SQL OUTPUT ===\n", sql, "\n==========================")
         except Exception as e:
             print(f"⚠️ Error during LLM call: {e}")
             return "ERROR"
 
         if sql.upper().startswith(("SELECT", "WITH")) or sql.strip() == "ERROR":
-            return sql
+            return sql, int(response.usage.total_tokens)
         return "ERROR"
     
         # Till Here "Giving only relevant Schema, kpi's to llm"
@@ -1800,7 +1732,8 @@ class SmartQueryEngine:
             temperature=0
         )
         print(response.usage, "For Drill Down Question generation.")
-        return response.choices[0].message.content.strip()
+        print(response.usage.total_tokens, "For Drill Down Question generation.")
+        return response.choices[0].message.content.strip(), int(response.usage.total_tokens)
 
     def handle_prompt(self, user_prompt: str, intent=None):
         # intent = self.intent
@@ -1809,8 +1742,9 @@ class SmartQueryEngine:
             # return self.generate_simple_sql(user_prompt)
             return "It Has generated simple query already"
         elif intent == "analysis":
-            breakdown_text = self.extract_kpis_and_prompts(user_prompt)
+            breakdown_text, total_tokens_for_drill_down_questions = self.extract_kpis_and_prompts(user_prompt)
             prompts = []
+            total_tokens_count = total_tokens_for_drill_down_questions
             capturing = False
             for line in breakdown_text.splitlines():
                 line = line.strip()
@@ -1821,12 +1755,14 @@ class SmartQueryEngine:
                     prompts.append(line)
             sql_outputs = []
             for sub_prompt in prompts:
-                sql = self.generate_simple_sql(sub_prompt)
+                sql, total_tokens_for_sql_generation = self.generate_simple_sql(sub_prompt)
                 sql = self.clean_sql(sql)
+                total_tokens_count += total_tokens_for_sql_generation
                 sql_outputs.append({"prompt": sub_prompt, "sql": sql})
             return {
                 "original_prompt": user_prompt,
                 "intent": intent,
+                "total_tokens": total_tokens_count,
                 "sub_prompts_sql": sql_outputs
             }
         else:
@@ -1905,9 +1841,10 @@ class SmartQueryEngine:
                 temperature=0
             )
             print(response.usage, "For Fixing LLM Failed Queries")
+            print(response.usage.total_tokens, "Total tokens For Fixing LLM Failed Queries")
 
             suggestion = response.choices[0].message.content.strip()
-
+    
             # Validate fix by running EXPLAIN again
             explain_success = False
             try:
@@ -1922,6 +1859,7 @@ class SmartQueryEngine:
                 "prompt": prompt,
                 "original_sql": sql,
                 "error": error_msg,
+                "token_used": int(response.usage.total_tokens),
                 "llm_suggestion": suggestion,
                 "explain_success": explain_success
             })
@@ -1953,9 +1891,10 @@ if __name__ == "__main__":
     # test_query = "How Many people tried Brand 1 for the first time"    
     # test_query = "can you provide the share performance of Brand 1 and pack size of 180"    
     # test_query = "can you provide the metric performance of Brand 1"      
-    # test_query = "What is the Sales Growth Percentage of Brand 1 with a pack size of 180 for the last year?"    
+    test_query = "What is the Sales Growth Percentage of Brand 1 with a pack size of 180 for the last year?"    
     # test_query = "What is the Household Penetration Growth of Brand 1 for the last year?"    
-    test_query = "What is the Sales growth percentage and Household Penetration Growth of Brand 1 for the last year?"    
+    # test_query = "What is the Sales growth percentage and Household Penetration Growth of Brand 1 for the last year?"    
+    # test_query = "can you provide the household penetration growth of brand 1 for the past three years?"    
     # test_query = "What is the Household Penetration of Brand 1 for the last year?"    
     # test_query = "Which soap pack sizes are selling the most, especially aloe vera soaps?"    
     # test_query = "What is the Sales Growth Percentage of Brand 2 with aloevera fragrance for the last year?"  
@@ -1980,7 +1919,8 @@ if __name__ == "__main__":
     result = processor.process_query(test_query)
     print(result)
     intent = result['intent']
-
+    tokens_used = result['total_tokens']
+    print(tokens_used)
     # master_sql_query = result['sql_query']
     DB_CONFIG = {
             "host": os.getenv("DB_HOST"),
@@ -1998,82 +1938,83 @@ if __name__ == "__main__":
     )
     
     # Use the original prompt or de-anonymized prompt for SQL generation
-    sql = smart_engine.generate_simple_sql(result["original_query"])
+    sql, tokens_used = smart_engine.generate_simple_sql(result["original_query"])
     print(sql)
+    print(tokens_used)
 
-    # Validate/fix if desired
-    validation_results = smart_engine.validate_queries_with_explain([{"prompt": result["original_query"], "sql": sql}])
-    print(validation_results)
-    if validation_results["failed"]:
-        fix_results = smart_engine.fix_failed_queries_with_llm(validation_results["failed"])
-        print(fix_results)
-        print(fix_results['fixed_results'][0]['llm_suggestion'])
-        fixed_sql = fix_results['fixed_results'][0]['llm_suggestion']
-    print("\n=== Query Processing Results ===")
-    print(f"Original Query: {result['original_query']}")
-    print(f"Intent: {result['intent']}")
-    print(f"Entities: {result['entities']}")
-    print("\n=== SQL Execution Plan ===")
-    for step in result["sql_plan"]:
-        print(f"- {step}")
+#     # Validate/fix if desired
+#     validation_results = smart_engine.validate_queries_with_explain([{"prompt": result["original_query"], "sql": sql}])
+#     print(validation_results)
+#     if validation_results["failed"]:
+#         fix_results = smart_engine.fix_failed_queries_with_llm(validation_results["failed"])
+#         print(fix_results)
+#         print(fix_results['fixed_results'][0]['llm_suggestion'])
+#         fixed_sql = fix_results['fixed_results'][0]['llm_suggestion']
+#     print("\n=== Query Processing Results ===")
+#     print(f"Original Query: {result['original_query']}")
+#     print(f"Intent: {result['intent']}")
+#     print(f"Entities: {result['entities']}")
+#     print("\n=== SQL Execution Plan ===")
+#     for step in result["sql_plan"]:
+#         print(f"- {step}")
     
-    # Get and display relevant KPIs
-    selected = kpi_selector.select_relevant_kpis(
-        prompt=result['original_query'], 
-        intent=result['intent']  # Fixed variable name from intnt to result['intent']
-    )
-    # print(selected, "Debug")
-    if selected:
-        print("\n=== Recommended KPIs ===")
-        for kpi, details in selected.items():
-            print(f"\n{kpi}:")
-            print(f"  Definition: {details['definition']}")
-            print(f"  Calculation: {details['logic']}")
-            print(f"  Tables: {', '.join(details['tables'])}")
+#     # Get and display relevant KPIs
+#     selected = kpi_selector.select_relevant_kpis(
+#         prompt=result['original_query'], 
+#         intent=result['intent']  # Fixed variable name from intnt to result['intent']
+#     )
+#     # print(selected, "Debug")
+#     if selected:
+#         print("\n=== Recommended KPIs ===")
+#         for kpi, details in selected.items():
+#             print(f"\n{kpi}:")
+#             print(f"  Definition: {details['definition']}")
+#             print(f"  Calculation: {details['logic']}")
+#             print(f"  Tables: {', '.join(details['tables'])}")
     
 
-    DB_CONFIG = {
-            "host": os.getenv("DB_HOST"),
-            "database": os.getenv("DB_NAME"),
-            "user": os.getenv("DB_USER"),
-            "password": os.getenv("DB_PASSWORD"),
-            "port": os.getenv("DB_PORT")
-        }
+#     DB_CONFIG = {
+#             "host": os.getenv("DB_HOST"),
+#             "database": os.getenv("DB_NAME"),
+#             "user": os.getenv("DB_USER"),
+#             "password": os.getenv("DB_PASSWORD"),
+#             "port": os.getenv("DB_PORT")
+#         }
 
-#     engine = SmartQueryEngine(client=client, intent=intent, schema_json=schema_json, db_config=DB_CONFIG)
-    engine = SmartQueryEngine(
-        client=client,
-        # intent=intent,
-        schema_json=schema_json,
-        db_config=DB_CONFIG,  # This must be properly configured
-        kpi_dict= kpi_dict
-    )
-    # print(engine)
-    result = engine.handle_prompt(test_query, intent=intent)
-    print('-----------')
-    print(result, "Debug")
-    print('-----------')
+# #     engine = SmartQueryEngine(client=client, intent=intent, schema_json=schema_json, db_config=DB_CONFIG)
+#     engine = SmartQueryEngine(
+#         client=client,
+#         # intent=intent,
+#         schema_json=schema_json,
+#         db_config=DB_CONFIG,  # This must be properly configured
+#         kpi_dict= kpi_dict
+#     )
+#     # print(engine)
+#     result = engine.handle_prompt(test_query, intent=intent)
+#     print('-----------')
+#     print(result, "Debug")
+#     print('-----------')
 
 
-    # Type-safe checking
-    if hasattr(result, "get") and "sub_prompts_sql" in result:
-        validation = engine.validate_queries_with_explain(result["sub_prompts_sql"])
-        print("validation", validation)
+#     # Type-safe checking
+#     if hasattr(result, "get") and "sub_prompts_sql" in result:
+#         validation = engine.validate_queries_with_explain(result["sub_prompts_sql"])
+#         print("validation", validation)
         
-        print("\nSuccessful queries:")
-        for success in validation["successful"]:
-            print(f"- {success['prompt']}")
-            print(f"  SQL: {success['sql'][:100]}...")  # Show first 100 chars          
+#         print("\nSuccessful queries:")
+#         for success in validation["successful"]:
+#             print(f"- {success['prompt']}")
+#             print(f"  SQL: {success['sql'][:100]}...")  # Show first 100 chars          
 
-        print("\nFailed queries:")
-        for failure in validation["failed"]:
-            print(f"- {failure['prompt']}")
-            print(f"  Error: {failure['error']}") 
+#         print("\nFailed queries:")
+#         for failure in validation["failed"]:
+#             print(f"- {failure['prompt']}")
+#             print(f"  Error: {failure['error']}") 
 
-        # fix_results = engine.fix_failed_queries_with_llm(validation["failed"])
-        # print(fix_results)
-    else:
-        print("Unexpected result format:", result)
+#         # fix_results = engine.fix_failed_queries_with_llm(validation["failed"])
+#         # print(fix_results)
+#     else:
+#         print("Unexpected result format:", result)
 
 
 
