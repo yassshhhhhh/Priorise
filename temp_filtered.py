@@ -506,13 +506,13 @@ class QueryProcessor:
     def __init__(self, openai_api_key: str):
         """Initialize with OpenAI API key"""
         self.client = openai.OpenAI(api_key=openai_api_key)
-        # self.sql_cache = {}  # Cache dictionary for SQL queries keyed by prompt string
+        self.sql_cache = {}  # Cache dictionary for SQL queries keyed by prompt string
         
     def classify_intent(self, prompt: str) -> str:
         # Check cache first
-        # if prompt in self.sql_cache:
-        #     print("Returning cached SQL query for classifying Intent.")
-        #     return self.sql_cache[prompt]
+        if prompt in self.sql_cache:
+            print("Returning cached SQL query for classifying Intent.")
+            return self.sql_cache[prompt], 0
         
         """Classify user prompt into intent categories (simple, analysis, compare)"""
         messages = [
@@ -533,7 +533,7 @@ class QueryProcessor:
         print(response.usage, "For Intent Classification")
         print(response.usage.total_tokens, "Total tokens For Intent Classification")
         # Save to cache
-        # self.sql_cache[prompt] = response.choices[0].message.content.strip().lower()
+        self.sql_cache[prompt] = response.choices[0].message.content.strip().lower()
         return response.choices[0].message.content.strip().lower(), int(response.usage.total_tokens)
 
     def extract_entities(self, prompt: str) -> dict:
@@ -1062,9 +1062,10 @@ class SmartQueryEngine:
         self.kpi_dict = kpi_dict
         self.validated_queries = []
         self.sql_cache = {}  # Cache dictionary for SQL queries keyed by prompt string
+        self.drill_down_cache = {}
 
     def clean_sql(self, sql: str) -> str:
-        return sql.replace('\n', ' ').replace('\t', ' ').strip()
+        return sql.replace("```sql", "").replace("```", "").replace('\n', ' ').replace('\t', ' ').strip()
 
     def get_years_from_periods(self, period_values):
         years = set()
@@ -1144,7 +1145,7 @@ class SmartQueryEngine:
         table_info = self.schema_json[table_name]
         columns = table_info["columns"]
         ci = table_info.get("categorical_info", {})
-        context = f"Table: {table_name}\nColumns: {', '.join(columns)}\n"
+        context = f'Table: "{table_name}"\nColumns: {", ".join(columns)}\n'
         for field, meta in ci.items():
             allowed = meta.get("sample_values", [])
             if allowed:
@@ -1193,7 +1194,7 @@ class SmartQueryEngine:
     #     # Return a list of (table_name, kpi_name, kpi_data)
     #     return [(table, kpi_name, kpi_data) for score, table, kpi_name, kpi_data in kpi_matches]
 
-    def find_relevant_kpis_for_prompt(self, prompt: str, relevant_tables: list = None):
+    def find_relevant_kpis_for_prompt(self, prompt: str, words_to_search: str, relevant_tables: list = None):
         """
         Returns: List of (table_name, kpi_name, kpi_data), sorted by match score (best first)
         
@@ -1210,7 +1211,7 @@ class SmartQueryEngine:
                     continue
 
             # Now check keywords only for filtered KPIs
-            keywords = kpi_data.get('main_keyword', [])
+            keywords = kpi_data.get(words_to_search, [])
             keywords_lower = [kw.lower() for kw in keywords]
 
             score = sum(prompt_l.count(kw) for kw in keywords_lower)
@@ -1467,11 +1468,11 @@ class SmartQueryEngine:
     #     _, (kpi_name, kpi_data) = self.find_best_kpi_for_prompt(prompt)
     #     return kpi_name, kpi_data
 
-    def extract_relevant_kpis(self, prompt: str, relevant_tables: List):
+    def extract_relevant_kpis(self, prompt: str, relevant_tables: List, words_to_search: str = 'main_keyword'):
         """
         Returns: list of (kpi_name, kpi_data)
         """
-        kpi_list = self.find_relevant_kpis_for_prompt(prompt, relevant_tables)
+        kpi_list = self.find_relevant_kpis_for_prompt(prompt=prompt, words_to_search=words_to_search,relevant_tables=relevant_tables)
         return [(kpi_name, kpi_data) for table, kpi_name, kpi_data in kpi_list]
     
     def build_metric_section(self, relevant_kpis):
@@ -1604,7 +1605,7 @@ class SmartQueryEngine:
         print(relevant_full_schema)
 
         # For relevant KPI's
-        relevant_kpis = self.extract_relevant_kpis(prompt, relevant_tables)
+        relevant_kpis = self.extract_relevant_kpis(prompt=prompt, relevant_tables=relevant_tables)
         metric_section = self.build_metric_section(relevant_kpis)
         print(metric_section)
 
@@ -1707,33 +1708,116 @@ class SmartQueryEngine:
         #     return sql
         # return "ERROR"
 
-    def extract_kpis_and_prompts(self, prompt: str) -> list:      
+    # def extract_kpis_and_prompts(self, prompt: str) -> list:   
+    #      # Check cache first
+    #     if prompt in self.drill_down_cache:
+    #         print("Returning cached Drill Down Questions from query.")
+    #         return self.drill_down_cache[prompt], 0
+          
+    #     messages = [
+    #         {
+    #             "role": "system",
+    #             "content": """You are a data assistant. From the given user prompt:
+    #             1. Extract relevant KPIs (e.g., Sales Growth Percentage, Volume Growth Percentage, Share Change Value, Household Penetration Growth)
+    #             2. Create 3–5 follow-up user prompts, each focusing on one KPI or a time range for detailed analysis.
+    #             3. Always provide prompts at yearly level only.
+    #             4. Maintain context from previous prompts such as brand, category, pack type.
+    #             5. Do not repeat previously asked prompts.
+    #             Respond in this format:
+    #             KPIs: [kpi1, kpi2]
+    #             Prompts:
+    #             - prompt 1
+    #             - prompt 2
+    #             ..."""
+    #         },
+    #         {"role": "user", "content": f"Prompt: {prompt}"}
+    #     ]
+    #     response = self.client.chat.completions.create(
+    #         model="gpt-4",
+    #         messages=messages,
+    #         temperature=0
+    #     )
+    #     print(response.usage, "For Drill Down Question generation.")
+    #     print(response.usage.total_tokens, "For Drill Down Question generation.")
+    #     self.drill_down_cache[prompt] = response.choices[0].message.content.strip()
+    #     return response.choices[0].message.content.strip(), int(response.usage.total_tokens)
+
+    def extract_kpis_and_prompts(self, prompt: str) -> tuple:
+        # Track previously asked drill questions, initialized on first call
+        if not hasattr(self, 'asked_prompts'):
+            self.asked_prompts = set()
+
+        # Check cache first
+        if prompt in self.drill_down_cache:
+            print("Returning cached Drill Down Questions from query.")
+            return self.drill_down_cache[prompt], 0
+        
+        # Send previously asked prompts to LLM to avoid duplicates/repetitions
+        # past_prompts_text = "\n".join(f"- {p}" for p in self.asked_prompts) if self.asked_prompts else "None"
+        # Limit or sample previously asked prompts
+        past_prompts_sample = list(self.asked_prompts)[-10:]
+        past_prompts_text = "\n".join(f"- {p}" for p in past_prompts_text) if self.asked_prompts else "None"
+
+        # For Relevant tables
+        relevant_tables = self.extract_relevant_table(prompt) 
+        # For relevant KPI's
+        relevant_kpis = self.extract_relevant_kpis(prompt, relevant_tables, words_to_search='keywords')
+        # metric_section = self.build_metric_section(relevant_kpis)
+        # print(metric_section)
+        # print(relevant_kpis)
+        kpi_names = [kpi[0] for kpi in relevant_kpis]
+
+        system_msg = f"""
+            You are a data assistant. Based on this user prompt and the previous drill-down prompts, perform the following tasks:
+
+            1. These are relevant KPI names for the user prompt: {kpi_names}.
+            2. These are pervious prompts asked by the user: {past_prompts_sample}
+            3. Generate exactly 3–5 drill-down questions, each uniquely targeting a distinct KPI or time period.
+            4. Ensure all questions are exclusive and **not variations or paraphrases of each other or previously asked prompts**.
+            5. All questions should be at the yearly level only.
+            6. Maintain context: brand, category, pack size.
+            7. Output format:
+
+            KPIs: [kpi1, kpi2, ...]
+            Prompts:
+            - prompt 1
+            - prompt 2
+            ...
+            """
+
         messages = [
-            {
-                "role": "system",
-                "content": """You are a data assistant. From the given user prompt:
-                1. Extract relevant KPIs (e.g., Sales Growth Percentage, Volume Growth Percentage, Share Change Value, Household Penetration Growth)
-                2. Create 3–5 follow-up user prompts, each focusing on one KPI or a time range for detailed analysis.
-                3. Always provide KPIs at yearly level only.
-                4. Maintain context from previous prompts such as brand, category, pack type.
-                5. Do not repeat previously asked prompts.
-                Respond in this format:
-                KPIs: [kpi1, kpi2]
-                Prompts:
-                - prompt 1
-                - prompt 2
-                ..."""
-            },
-            {"role": "user", "content": f"Prompt: {prompt}"}
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": f"Current user input:\n{prompt}"}
         ]
+
         response = self.client.chat.completions.create(
             model="gpt-4",
             messages=messages,
             temperature=0
         )
-        print(response.usage, "For Drill Down Question generation.")
-        print(response.usage.total_tokens, "For Drill Down Question generation.")
-        return response.choices[0].message.content.strip(), int(response.usage.total_tokens)
+
+        text_response = response.choices[0].message.content.strip()
+
+        # Parse the returned prompts
+        new_prompts = []
+        prompts_start = False
+        for line in text_response.splitlines():
+            line = line.strip()
+            if line.lower().startswith("prompts:"):
+                prompts_start = True
+                continue
+            if prompts_start and line.startswith("-"):
+                prompt_text = line.lstrip("-").strip()
+                # Check simple uniqueness heuristics
+                if prompt_text and prompt_text not in self.asked_prompts and all(prompt_text.lower() not in p.lower() and p.lower() not in prompt_text.lower() for p in self.asked_prompts):
+                    new_prompts.append(prompt_text)
+                    self.asked_prompts.add(prompt_text)
+
+        # Cache full response text per prompt
+        self.drill_down_cache[prompt] = text_response
+
+        return text_response, int(response.usage.total_tokens)
+
 
     def handle_prompt(self, user_prompt: str, intent=None):
         # intent = self.intent
@@ -1844,13 +1928,13 @@ class SmartQueryEngine:
             print(response.usage.total_tokens, "Total tokens For Fixing LLM Failed Queries")
 
             suggestion = response.choices[0].message.content.strip()
-    
+            cleaned_suggestion = self.clean_sql(suggestion)
             # Validate fix by running EXPLAIN again
             explain_success = False
             try:
                 with psycopg2.connect(**self.db_config) as conn:
                     with conn.cursor() as cursor:
-                        cursor.execute(f"EXPLAIN {suggestion}")
+                        cursor.execute(f"EXPLAIN {cleaned_suggestion}")
                 explain_success = True
             except Exception:
                 explain_success = False
@@ -1860,7 +1944,7 @@ class SmartQueryEngine:
                 "original_sql": sql,
                 "error": error_msg,
                 "token_used": int(response.usage.total_tokens),
-                "llm_suggestion": suggestion,
+                "llm_suggestion": cleaned_suggestion,
                 "explain_success": explain_success
             })
 
@@ -1891,8 +1975,8 @@ if __name__ == "__main__":
     # test_query = "How Many people tried Brand 1 for the first time"    
     # test_query = "can you provide the share performance of Brand 1 and pack size of 180"    
     # test_query = "can you provide the metric performance of Brand 1"      
-    test_query = "What is the Sales Growth Percentage of Brand 1 with a pack size of 180 for the last year?"    
-    # test_query = "What is the Household Penetration Growth of Brand 1 for the last year?"    
+    # test_query = "What is the Sales Growth Percentage of Brand 1 with a pack size of 180 for the last year?"    
+    test_query = "What is the Household Penetration Growth of Brand 1 for the last year?"    
     # test_query = "What is the Sales growth percentage and Household Penetration Growth of Brand 1 for the last year?"    
     # test_query = "can you provide the household penetration growth of brand 1 for the past three years?"    
     # test_query = "What is the Household Penetration of Brand 1 for the last year?"    
@@ -1916,11 +2000,11 @@ if __name__ == "__main__":
     
     # test_query = "FMCG quarterly growth in urban market?"
 
-    result = processor.process_query(test_query)
-    print(result)
-    intent = result['intent']
-    tokens_used = result['total_tokens']
-    print(tokens_used)
+    # result = processor.process_query(test_query)
+    # print(result)
+    # intent = result['intent']
+    # tokens_used = result['total_tokens']
+    # print(tokens_used)
     # master_sql_query = result['sql_query']
     DB_CONFIG = {
             "host": os.getenv("DB_HOST"),
@@ -1938,9 +2022,14 @@ if __name__ == "__main__":
     )
     
     # Use the original prompt or de-anonymized prompt for SQL generation
-    sql, tokens_used = smart_engine.generate_simple_sql(result["original_query"])
-    print(sql)
-    print(tokens_used)
+    # sql, tokens_used = smart_engine.generate_simple_sql(result["original_query"])
+    # print(sql)
+    # print(tokens_used)
+
+    # Testing Drill Down Questions.
+    ddq, tu = smart_engine.extract_kpis_and_prompts(test_query)
+    print(ddq)
+    print(tu)
 
 #     # Validate/fix if desired
 #     validation_results = smart_engine.validate_queries_with_explain([{"prompt": result["original_query"], "sql": sql}])

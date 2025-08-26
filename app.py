@@ -158,7 +158,7 @@ client = OpenAIClient(api_key=os.getenv("OPEN_API_KEY"))
 # Here Writing Engine
 from temp_filtered import QueryProcessor, KPISelector, SmartQueryEngine, schema_json, kpi_dict
 client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-y_processor = QueryProcessor(openai_api_key=os.getenv("OPENAI_API_KEY"))
+# y_processor = QueryProcessor(openai_api_key=os.getenv("OPENAI_API_KEY"))
 kpi_selector = KPISelector()
 DB_CONFIG = {
     "host": os.getenv("DB_HOST"),
@@ -175,6 +175,9 @@ if 'engine' not in st.session_state:
         db_config=DB_CONFIG,
         kpi_dict=kpi_dict
     )
+
+if 'query_processor' not in st.session_state:
+    st.session_state.query_processor = QueryProcessor(openai_api_key=os.getenv("OPENAI_API_KEY"))
 # -----------------------------------------------------------------------------------------------
 
 # Add after imports
@@ -1256,6 +1259,7 @@ with tab1:
     if st.session_state.should_run_filtered:
         with st.spinner("Processing filtered analysis..."):
             # Before filtering the result, I want give sql table for the master query.
+            y_processor = st.session_state.query_processor
             result = y_processor.process_query(st.session_state.last_query)
             y_intent = result['intent']
             add_token_usage(result['total_tokens'], st.session_state.last_query, usage_type="Intent Classification")
@@ -1320,26 +1324,64 @@ with tab1:
 
     # --- Always Show Main Answer Table --- #
     if st.session_state['main_answer_df'] is not None:
-        # st.markdown("### Main Answer Table")
-        # Step 1: Format numbers directly in your dataframe
         df_to_show = st.session_state['main_answer_df'].copy()
+        # Format numeric columns with commas and two decimals
+        df = df_to_show.copy()
 
-        # Round and format numeric columns
-        for col in df_to_show.select_dtypes(include=['float', 'int']).columns:
-            df_to_show[col] = df_to_show[col].map(lambda x: f"{x:,.2f}")
+        # Reset index to remove index column from output
+        df = df.reset_index(drop=True)
 
-        # Step 2: Remove the index entirely by converting to records and back
-        df_no_index = pd.DataFrame(df_to_show.to_numpy(), columns=df_to_show.columns)
+        def format_number(x, is_year=False):
+            if pd.isna(x):
+                return ""
+            if is_year:
+                return f"{int(x)}"
+            else:
+                return f"{x:,.2f}"
 
-        # Step 3: Show it — no index column at all
-        st.dataframe(df_no_index)
+        for col in df.columns:
+            if col.lower() == "year":
+                df[col] = df[col].map(lambda x: format_number(x, is_year=True))
+            elif pd.api.types.is_numeric_dtype(df[col]):
+                df[col] = df[col].map(format_number)
+
+        styled_df = df.style.set_table_styles(
+            [{
+                "selector": "tbody tr:nth-child(odd)",
+                "props": [("background-color", "#f9f9f9")]
+            }]
+        ).set_properties(**{'text-align': 'left'})
+
+        st.dataframe(styled_df, hide_index=True)
 
     # ----- For Analysis Intent: Show Checklist ----
     if st.session_state.get("should_show_selection") and st.session_state.get("filtered_results"):
-        successful = st.session_state.filtered_results.get("successful", [])
-        print(successful)
+        engine = st.session_state.engine
+        successful = st.session_state.filtered_results.get("successful", []).copy() # ensure copy, avoid mutation
+        failed = st.session_state.filtered_results.get("failed", [])
+        newly_fixed = []
+        if failed:
+            print('About to fix failed queries. Failed=', failed)
+            print('Type:', type(failed))
+            fix_results = engine.fix_failed_queries_with_llm(failed)
+            print(fix_results, 'Fixing Failed Queries %^&*@#')
+            for fix in fix_results["fixed_results"]:
+                if fix.get('explain_success'):
+                    fixed_prompt = {
+                        "prompt": fix["prompt"],
+                        "sql": fix["llm_suggestion"]
+                    }
+                    successful.append(fixed_prompt)
+                    newly_fixed.append(fixed_prompt)
+                    add_token_usage(fix.get('token_used', 0), fix["prompt"], usage_type="For Fixing failed queries.")
+                else:
+                    st.warning(f"Could not automatically fix failed query: {fix['prompt']}. Please review manually.")
+
+        # -- Store updated list for the next steps --
         prompts = [item["prompt"] for item in successful]
         options = prompts + ["Query Knowledge Base"]
+        st.session_state.all_successful_for_selection = successful  # Save for access in next UI section
+
         st.markdown("### Select one or more analyses to run:")
 
         # Keep checked state in session
@@ -1368,11 +1410,12 @@ with tab1:
 
     # ----- Show Final Filtered and/or Unfiltered Answers -----
     if st.session_state.get("selected_prompts") is not None:
-        successful = st.session_state.filtered_results.get("successful", []) if st.session_state.filtered_results else []
-        prompt_to_sql = {item["prompt"]: item["sql"] for item in successful}
+        all_success = st.session_state.get('all_successful_for_selection') or \
+        st.session_state.filtered_results.get("successful", []) or []
+        prompt_to_sql = {item["prompt"]: item["sql"] for item in all_success}
 
-        result = y_processor.process_query(st.session_state.last_query)
-        y_intent = result['intent']
+        # result = y_processor.process_query(st.session_state.last_query)
+        # y_intent = result['intent']
 
         engine = st.session_state.engine
 
@@ -1394,11 +1437,62 @@ with tab1:
                     add_token_usage(fix_results['fixed_results'][0]['token_used'], prompt, usage_type="For Fixing failed queries.")
                     sql_cleaned_query = sql.replace("```sql", "").replace("```", "").replace("\n", "").strip()
                     result_df = engine.execute_sql(sql_cleaned_query)
-                    st.dataframe(result_df)
+                    df = result_df.copy()
+                    # Reset index to remove index column from output
+                    df = df.reset_index(drop=True)
+
+                    def format_number(x, is_year=False):
+                        if pd.isna(x):
+                            return ""
+                        if is_year:
+                            return f"{int(x)}"
+                        else:
+                            return f"{x:,.2f}"
+
+                    for col in df.columns:
+                        if col.lower() == "year":
+                            df[col] = df[col].map(lambda x: format_number(x, is_year=True))
+                        elif pd.api.types.is_numeric_dtype(df[col]):
+                            df[col] = df[col].map(format_number)
+
+                    styled_df = df.style.set_table_styles(
+                        [{
+                            "selector": "tbody tr:nth-child(odd)",
+                            "props": [("background-color", "#f9f9f9")]
+                        }]
+                    ).set_properties(**{'text-align': 'left'})
+
+                    st.dataframe(styled_df, hide_index=True)
                     
                 elif validation_results["successful"]:
                     result_df = engine.execute_sql(sql)
-                    st.dataframe(result_df)
+                    df = result_df.copy()
+
+                    # Reset index to remove index column from output
+                    df = df.reset_index(drop=True)
+
+                    def format_number(x, is_year=False):
+                        if pd.isna(x):
+                            return ""
+                        if is_year:
+                            return f"{int(x)}"
+                        else:
+                            return f"{x:,.2f}"
+
+                    for col in df.columns:
+                        if col.lower() == "year":
+                            df[col] = df[col].map(lambda x: format_number(x, is_year=True))
+                        elif pd.api.types.is_numeric_dtype(df[col]):
+                            df[col] = df[col].map(format_number)
+
+                    styled_df = df.style.set_table_styles(
+                        [{
+                            "selector": "tbody tr:nth-child(odd)",
+                            "props": [("background-color", "#f9f9f9")]
+                        }]
+                    ).set_properties(**{'text-align': 'left'})
+
+                    st.dataframe(styled_df, hide_index=True)
                     # sql_cleaned_query = sql.replace("```sql", "").replace("```", "").replace("\n", "").strip()
                     # result_df = engine.execute_sql(sql_cleaned_query)
                     # st.dataframe(result_df)
