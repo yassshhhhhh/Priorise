@@ -81,6 +81,8 @@ if "current_query" not in st.session_state:
 # Recently Updated.
 if 'main_answer_df' not in st.session_state:
     st.session_state['main_answer_df'] = None
+if "database_previous_prompts" not in st.session_state:
+    st.session_state.database_previous_prompts = []
 
 # if "current_query_token_usage" not in st.session_state:
 #     st.session_state.current_query_token_usage = 0
@@ -268,6 +270,7 @@ with tab1:
                 st.session_state.should_run_filtered = True
                 st.session_state.last_query = temp_query
                 st.session_state['main_answer_df'] = None
+                st.session_state.database_previous_prompts.append(temp_query)
     
     with col2:
         if st.button("Query Knowledge Base", key="kb_btn"):
@@ -600,6 +603,8 @@ with tab1:
                         )
                         
                         extracted_text = response.choices[0].message.content
+                        tokens_used = response.usage.total_tokens
+                        add_token_usage(tokens_used, st.session_state.last_query, usage_type="Unstructured Data")
                         page_texts.append({
                             "slide_number": i + 1,
                             "text": extracted_text,
@@ -707,7 +712,9 @@ with tab1:
                             )
                             
                             extracted_text = response.choices[0].message.content
-                            
+                            tokens_used = response.usage.total_tokens
+                            add_token_usage(tokens_used, st.session_state.last_query, usage_type="Unstructured Data")
+
                             if st.session_state.debug_mode:
                                 with st.expander(f"Debug: Extracted Content Page {i+1}", expanded=False):
                                     st.write("#### Extracted Content")
@@ -879,6 +886,8 @@ with tab1:
                         temperature=0,
                         max_tokens=512
                     )
+                tokens_used = response_PPT.usage.total_tokens
+                add_token_usage(tokens_used, st.session_state.last_query, usage_type="Unstructured Data")
                 drill_response_PPT = response_PPT.choices[0].message.content
                 clean_response_PPT = drill_response_PPT.replace("```python", "").replace("```", "").strip()
                 parsed_questions_PPT= ast.literal_eval(clean_response_PPT)
@@ -897,7 +906,8 @@ with tab1:
                         temperature=0,
                         max_tokens=512
                     )
-            
+                tokens_used = response_main.usage.total_tokens
+                add_token_usage(tokens_used, st.session_state.last_query, usage_type="Unstructured Data")
                 drill_response_main = response_main.choices[0].message.content
                 clean_response_main = drill_response_main.replace("```python", "").replace("```", "").strip()
                 parsed_questions_main = ast.literal_eval(clean_response_main)
@@ -957,6 +967,8 @@ with tab1:
                     max_tokens=100
                 )
                 response_content = response.choices[0].message.content.strip()
+                tokens_used = response.usage.total_tokens
+                add_token_usage(tokens_used, st.session_state.last_query, usage_type="Unstructured Data")
                 indices = ast.literal_eval(response_content)
                 if not isinstance(indices, list):
                     raise ValueError("LLM did not return a valid list of indices")
@@ -995,6 +1007,8 @@ with tab1:
                 )
                 
                 page_content = response.choices[0].message.content
+                tokens_used = response.usage.total_tokens
+                add_token_usage(tokens_used, st.session_state.last_query, usage_type="Unstructured Data")
                 if "No relevant information on this page" not in page_content:
                     page_responses.append({
                         "page_number": page_num,
@@ -1102,7 +1116,8 @@ with tab1:
                             temperature=0,
                             max_tokens=1000
                         )
-                        
+                        tokens_used = final_response.usage.total_tokens
+                        add_token_usage(tokens_used, st.session_state.last_query, usage_type="Unstructured Data")
                         final_insight = final_response.choices[0].message.content
                         st.write(final_insight)
                         
@@ -1172,6 +1187,8 @@ with tab1:
                                 temperature=0,
                                 max_tokens=1024
                             )
+                            tokens_used = response.usage.total_tokens
+                            add_token_usage(tokens_used, st.session_state.last_query, usage_type="Unstructured Data")
                             final_insight = response.choices[0].message.content
                             st.write("### Final Consolidated Insight")
                             st.write(final_insight)
@@ -1238,6 +1255,8 @@ with tab1:
                                 max_tokens=1024
                             )
                             final_insight = response.choices[0].message.content
+                            tokens_used = response.usage.total_tokens
+                            add_token_usage(tokens_used, st.session_state.last_query, usage_type="Unstructured Data")
                             st.write("### Final Consolidated Insight")
                             st.write(final_insight)
 
@@ -1300,7 +1319,8 @@ with tab1:
                     st.write("There's no data related to the question in the database.")
 
             # -------------------------------------------------------------------------------
-            filtered_result = engine.handle_prompt(st.session_state.last_query, intent=y_intent)
+            prompts_to_drill = st.session_state.database_previous_prompts
+            filtered_result = engine.handle_prompt(st.session_state.last_query, intent=y_intent, previous_prompts=prompts_to_drill[:-1])
             print("###############################################")
             print(filtered_result)
             if y_intent != 'simple':
@@ -1328,31 +1348,34 @@ with tab1:
         # Format numeric columns with commas and two decimals
         df = df_to_show.copy()
 
-        # Reset index to remove index column from output
         df = df.reset_index(drop=True)
 
         def format_number(x, is_year=False):
             if pd.isna(x):
                 return ""
+            
             if is_year:
                 return f"{int(x)}"
-            else:
-                return f"{x:,.2f}"
+            
+            # If it's effectively an integer (e.g., 2023.0), show without decimals
+            if isinstance(x, (int, float)):
+                if float(x).is_integer():
+                    return f"{int(x)}"
+                else:
+                    return f"{x:,.2f}"
+            
+            return x  # For non-numeric types
 
+        # Apply formatting
         for col in df.columns:
             if col.lower() == "year":
                 df[col] = df[col].map(lambda x: format_number(x, is_year=True))
             elif pd.api.types.is_numeric_dtype(df[col]):
                 df[col] = df[col].map(format_number)
 
-        styled_df = df.style.set_table_styles(
-            [{
-                "selector": "tbody tr:nth-child(odd)",
-                "props": [("background-color", "#f9f9f9")]
-            }]
-        ).set_properties(**{'text-align': 'left'})
+        # Show without index
+        st.dataframe(df, hide_index=True)
 
-        st.dataframe(styled_df, hide_index=True)
 
     # ----- For Analysis Intent: Show Checklist ----
     if st.session_state.get("should_show_selection") and st.session_state.get("filtered_results"):
@@ -1455,14 +1478,7 @@ with tab1:
                         elif pd.api.types.is_numeric_dtype(df[col]):
                             df[col] = df[col].map(format_number)
 
-                    styled_df = df.style.set_table_styles(
-                        [{
-                            "selector": "tbody tr:nth-child(odd)",
-                            "props": [("background-color", "#f9f9f9")]
-                        }]
-                    ).set_properties(**{'text-align': 'left'})
-
-                    st.dataframe(styled_df, hide_index=True)
+                    st.dataframe(df, hide_index=True)
                     
                 elif validation_results["successful"]:
                     result_df = engine.execute_sql(sql)
@@ -1485,14 +1501,7 @@ with tab1:
                         elif pd.api.types.is_numeric_dtype(df[col]):
                             df[col] = df[col].map(format_number)
 
-                    styled_df = df.style.set_table_styles(
-                        [{
-                            "selector": "tbody tr:nth-child(odd)",
-                            "props": [("background-color", "#f9f9f9")]
-                        }]
-                    ).set_properties(**{'text-align': 'left'})
-
-                    st.dataframe(styled_df, hide_index=True)
+                    st.dataframe(df, hide_index=True)
                     # sql_cleaned_query = sql.replace("```sql", "").replace("```", "").replace("\n", "").strip()
                     # result_df = engine.execute_sql(sql_cleaned_query)
                     # st.dataframe(result_df)

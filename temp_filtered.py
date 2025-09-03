@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from typing import List, Dict
 from dotenv import load_dotenv
 import psycopg2 
+import random
 
 load_dotenv()
    
@@ -126,27 +127,27 @@ queries_data = {
 kpi_dict = {
     "Sales Growth Percentage": {
         "definition": "Total sales growth percentage",
-        "logic": "((SUM(CASE WHEN {period_col} = '{end_period}' THEN sales_value ELSE 0 END) - " 
+        "logic": ("((SUM(CASE WHEN {period_col} = '{end_period}' THEN sales_value ELSE 0 END) - " 
                  "SUM(CASE WHEN {period_col} = '{start_period}' THEN sales_value ELSE 0 END)) / " 
-                 "NULLIF(SUM(CASE WHEN {period_col} = '{start_period}' THEN sales_value ELSE 0 END),0)) * 100",
+                 "NULLIF(SUM(CASE WHEN {period_col} = '{start_period}' THEN sales_value ELSE 0 END),0)) * 100"),
         "tables": ["PRI_sales_rms"],
         "main_keyword": ["sales"],
         "keywords": ["sales", "growth", "percentage", "performance"]
     },
     "Volume Growth Percentage": {
         "definition": "Total volume growth percentage",
-        "logic": "((SUM(CASE WHEN {period_col} = '{end_period}' THEN sales_vol ELSE 0 END) - " 
+        "logic": ("((SUM(CASE WHEN {period_col} = '{end_period}' THEN sales_vol ELSE 0 END) - " 
                  "SUM(CASE WHEN {period_col} = '{start_period}' THEN sales_vol ELSE 0 END)) / " 
-                 "NULLIF(SUM(CASE WHEN {period_col} = '{start_period}' THEN sales_vol ELSE 0 END),0)) * 100",
+                 "NULLIF(SUM(CASE WHEN {period_col} = '{start_period}' THEN sales_vol ELSE 0 END),0)) * 100"),
         "tables": ["PRI_sales_rms"],
         "main_keyword": ["volume"],
         "keywords": ["volume", "growth", "percentage", "performance"]
     },
     "Unit Growth Percentage": {
         "definition": "Total Unit growth percentage",
-        "logic": "((SUM(CASE WHEN {period_col} = '{end_period}' THEN sales_units ELSE 0 END) - " 
+        "logic": ("((SUM(CASE WHEN {period_col} = '{end_period}' THEN sales_units ELSE 0 END) - " 
                  "SUM(CASE WHEN {period_col} = '{start_period}' THEN sales_units ELSE 0 END)) / " 
-                 "NULLIF(SUM(CASE WHEN {period_col} = '{start_period}' THEN sales_units ELSE 0 END),0)) * 100",
+                 "NULLIF(SUM(CASE WHEN {period_col} = '{start_period}' THEN sales_units ELSE 0 END),0)) * 100"),
         "tables": ["PRI_sales_rms"],
         "main_keyword": ["unit"],
         "keywords": ["unit", "growth", "percentage", "performance"]
@@ -160,7 +161,7 @@ kpi_dict = {
             -
             (SUM(sales_value) FILTER (WHERE {period_col} = '{start_period}' {brand_filter} {fragrance_filter} {market_filter}) /
             NULLIF(SUM(sales_value) FILTER (WHERE {period_col} = '{start_period}' {category_filter}), 0) * 100)
-            )""",
+            )"""
         ),
         "tables": ["PRI_sales_rms"],
         "main_keyword": ["share"],
@@ -175,7 +176,7 @@ kpi_dict = {
             -
             (SUM(sales_vol) FILTER (WHERE {period_col} = '{start_period}' {brand_filter} {fragrance_filter} {market_filter}) /
             NULLIF(SUM(sales_vol) FILTER (WHERE {period_col} = '{start_period}' {category_filter}), 0) * 100)
-            )""",
+            )"""
         ),
         "tables": ["PRI_sales_rms"],
         "main_keyword": ["share"],
@@ -404,8 +405,10 @@ schema_json = {
     },     
 
     "PRI_iop_hh_consumption": {
-        "columns": ["market", "item", "item_type", "pack_size", "year", "avg_cons", "avg_fop", "avg_nob", "avg_nop", "avg_poc", "avg_spent", "hh", "hh_gr_percentage",
-                    "penetration_percentage", "sor_val", "sor_vol", "val", "vol", "brand_filtered"],
+        "columns": ["market", "item", "item_type", "pack_size", "year", "average_consumption", "average_frequency_of_purchase", "average_number_of_brands_bought", 
+                    "average_number_of_purchase_for_occasions", "average_quanity_of_product_purchased_per_purchase_occasions", "average_spent", "household", 
+                    "household_growth_percentage", "penetration_percentage", "share_of_requirements_by_value", "share_of_requirements_by_volume", "value",
+                    "volume", "brand_filtered"],
         "categorical_info": {
             "item": {
                 "definition": "Grouped category item name",
@@ -431,35 +434,35 @@ schema_json = {
                 "definition": "Refined or grouped brand view",
                 "sample_values": ["Other", "Brand 1", "Brand 2", "Brand 11", "Brand 20"]
             },
-            "avg_cons": {
+            "average_consumption": {
                 "definition": "Average consumption per household",
                 "sample_values": [0.89, 0.964, 305199.401, 82090]
             },
-            "avg_fop": {
+            "average_frequency_of_purchase": {
                 "definition": "Average frequency of purchase per household",
                 "sample_values": [10.296, 305199.401, 82884, 2.292]
             },
-            "avg_nob": {
+            "average_number_of_brands_bought": {
                 "definition": "Average number of brands bought per household (brand switching behavior)",
                 "sample_values": [3.401, 305199.401, 82090, 4.425]
             },
-            "avg_nop": {
+            "average_number_of_purchase_for_occasions": {
                 "definition": "The average number of purchase occasions (shopping trips or times the product was bought) per household during the period.",
                 "sample_values": [137.466, 154.088, 313490.563, 82090]
             },
-            "avg_poc": {
+            "average_quanity_of_product_purchased_per_purchase_occasions": {
                 "definition": "the average quantity of product purchased per purchase occasion (trip) by buying households over a defined period",
                 "sample_values": [26.824, 305199.401, 82884, 1.849]
             },
-            "avg_spent": {
+            "average_spent": {
                 "definition": "Average amount spent per household",
                 "sample_values": [283.809, 322035.97, 290.313, 62.688]
             },
-            "hh": {
+            "household": {
                 "definition": "Number of households purchasing the brand/category",
                 "sample_values": [295152.1, 304027.691, 312764.221, 82090]
             },
-            "hh_gr_percentage": {
+            "household_growth_percentage": {
                 "definition": "Percentage of growth in household count over previous year",
                 "sample_values": [-3.85567227693214, 1.49877741793223, 145.009542195663, -12.3495655008658]
             },
@@ -467,19 +470,19 @@ schema_json = {
                 "definition": "Percentage of total market households that bought the brand/category",
                 "sample_values": [0.136648102399126, 0.0965325780570585, 0.00474113497321433]
             },
-            "sor_val": {
+            "share_of_requirements_by_value": {
                 "definition": "Share of requirements by value (how much of total spend is on the brand)",
                 "sample_values": [100, 305199.401, 322035.97, 42.774]
             },
-            "sor_vol": {
+            "share_of_requirements_by_volume": {
                 "definition": "Share of requirements by volume (how much of total quantity is from the brand)",
                 "sample_values": [100, 25, 305199.401, 22.162]
             },
-            "val": {
+            "value": {
                 "definition": "Total value of sales (in currency)",
                 "sample_values": [83766.704, 111854.283, 330844.863]
             },
-            "vol": {
+            "volume": {
                 "definition": "Total quantity sold (in litres, ml, grams, etc.)",
                 "sample_values": [262664.011, 305199.401, 83628]
             },
@@ -1113,7 +1116,7 @@ class SmartQueryEngine:
         relevant_tables = []
 
         # Priority fallback checks first
-        if any(k in prompt_l for k in ["household", "penetration", "hh"]):
+        if any(k in prompt_l for k in ['household', 'penetration', 'hh', 'average consumption', 'average frequency', 'brands bought', 'occasions', 'average spent', 'household', 'household growth percentage', 'penetration percentage', 'share of requirements by value', 'share of requirements by volume']):
             relevant_tables.append('PRI_iop_hh_consumption')
 
         if any(k in prompt_l for k in ["brand loss", "gain", "repertoire", "brand_net_shift"]):
@@ -1153,7 +1156,7 @@ class SmartQueryEngine:
                 allowed_str = ', '.join(map(str, truncated))
                 if len(allowed) > 8:
                     allowed_str += ", ..."
-                context += f"{field}: Allowed values: {allowed_str}\n"
+                context += f"{field}: Sample values: {allowed_str}\n"
         return context
 
     # def find_best_kpi_for_prompt(self, prompt: str):
@@ -1509,6 +1512,26 @@ class SmartQueryEngine:
         except Exception as e:
             print(f"Failed to fetch schema for {table_name}: {e}")
             return ""
+        
+    def fetch_column_names(self, table_name):
+        query = """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_name = %s
+            ORDER BY ordinal_position;
+        """
+        try:
+            with psycopg2.connect(**self.db_config) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(query, (table_name,))
+                    columns = cur.fetchall()
+            # columns is a list of tuples, we want just the names
+            column_names = [col[0] for col in columns]
+            return column_names
+        except Exception as e:
+            print(f"Failed to fetch column names for {table_name}: {e}")
+            return []
+
 
     def generate_simple_sql(self, prompt: str) -> str:
 
@@ -1558,10 +1581,10 @@ class SmartQueryEngine:
 
             except Exception as e:
                 print(f"⚠️ Error during LLM call: {e}")
-                return "ERROR"
+                return "ERROR", int(response.usage.total_tokens)
             if sql.upper().startswith(('SELECT', 'WITH')) or sql == 'ERROR':
                 return sql, int(response.usage.total_tokens)
-            return "ERROR"
+            return "ERROR", int(response.usage.total_tokens)
 
          # 2. KPI/data analysis path: ONLY send required info
         # table = self.extract_relevant_table(prompt)
@@ -1618,8 +1641,10 @@ class SmartQueryEngine:
             - Prevent division by zero (use NULLIF or CASE).
             - Whenever there is a string comparision always perform the comparision in the same case(lower or upper) in the SQL query.
             - Match the condition strings given by the users to the nearest possible value in the conditional columns. For Example: If user is asking about 'aloevera' the user intends to enquire about 'aloe vera' form the fragrance_ingredients column.
-            - Use 'period' for time filtering, with allowed values as shown.
-            - No explanations or extra text. Output only a valid SELECT/WITH SQL or 'ERROR'.
+            - Respond only with the SQL query.
+            - Do NOT include any explanation, commentary, or markdown.
+            - Output ONLY one valid SQL statement starting with SELECT or WITH.
+            - If you cannot generate valid SQL, output "ERROR" only.
             - For unsupported metrics, output 'ERROR'. """
         )
 
@@ -1641,11 +1666,11 @@ class SmartQueryEngine:
             print("\n=== LLM RAW SQL OUTPUT ===\n", sql, "\n==========================")
         except Exception as e:
             print(f"⚠️ Error during LLM call: {e}")
-            return "ERROR"
+            return "ERROR", int(response.usage.total_tokens)
 
         if sql.upper().startswith(("SELECT", "WITH")) or sql.strip() == "ERROR":
             return sql, int(response.usage.total_tokens)
-        return "ERROR"
+        return "ERROR", int(response.usage.total_tokens)
     
         # Till Here "Giving only relevant Schema, kpi's to llm"
 
@@ -1742,24 +1767,39 @@ class SmartQueryEngine:
     #     self.drill_down_cache[prompt] = response.choices[0].message.content.strip()
     #     return response.choices[0].message.content.strip(), int(response.usage.total_tokens)
 
-    def extract_kpis_and_prompts(self, prompt: str) -> tuple:
-        # Track previously asked drill questions, initialized on first call
-        if not hasattr(self, 'asked_prompts'):
-            self.asked_prompts = set()
+    def extract_kpis_and_prompts(self, prompt: str, previous_prompts=[]) -> tuple:
 
         # Check cache first
         if prompt in self.drill_down_cache:
             print("Returning cached Drill Down Questions from query.")
             return self.drill_down_cache[prompt], 0
         
-        # Send previously asked prompts to LLM to avoid duplicates/repetitions
-        # past_prompts_text = "\n".join(f"- {p}" for p in self.asked_prompts) if self.asked_prompts else "None"
-        # Limit or sample previously asked prompts
-        past_prompts_sample = list(self.asked_prompts)[-10:]
-        past_prompts_text = "\n".join(f"- {p}" for p in past_prompts_text) if self.asked_prompts else "None"
+        past_prompts_sample = list(previous_prompts)[-5:]
+        past_prompts_text = "\n".join(f"- {p}" for p in past_prompts_sample) if past_prompts_sample else "None"
+        print(past_prompts_text, "*******These are pervious prompts asked by the user in that session.*********")
+        # For Testing purpose
+        # past_prompts_sample = """
+        #                 - What is the Performance of all the brands with aloevera fragrance for the last year?
+        #                 - can you provide the performance of Brand 1 and pack size of 180
+        #                 - Give me the table names from the database?
+        #                 - What is the Performance of all the brand 1 bottle versus all brands combined?
+        #                 - What is the Sales Growth Percentage of Brand 1 with a pack size of 180 for the last year?
+        #                 """
 
         # For Relevant tables
         relevant_tables = self.extract_relevant_table(prompt) 
+        print(relevant_tables)
+        relevant_tables_columns = []
+        for table in relevant_tables:
+            columns = self.fetch_column_names(table)
+            relevant_tables_columns.append(columns)
+        # Flatten into a simple list
+        flat_columns = [col for sublist in relevant_tables_columns for col in sublist]
+        print(flat_columns)
+
+        # random_columns = random.sample(flat_columns, 6)
+        # print(random_columns)
+
         # For relevant KPI's
         relevant_kpis = self.extract_relevant_kpis(prompt, relevant_tables, words_to_search='keywords')
         # metric_section = self.build_metric_section(relevant_kpis)
@@ -1768,22 +1808,31 @@ class SmartQueryEngine:
         kpi_names = [kpi[0] for kpi in relevant_kpis]
 
         system_msg = f"""
-            You are a data assistant. Based on this user prompt and the previous drill-down prompts, perform the following tasks:
+                You are a senior data analyst for an FMCG company and you have a sharp eye for insights. Given:
 
-            1. These are relevant KPI names for the user prompt: {kpi_names}.
-            2. These are pervious prompts asked by the user: {past_prompts_sample}
-            3. Generate exactly 3–5 drill-down questions, each uniquely targeting a distinct KPI or time period.
-            4. Ensure all questions are exclusive and **not variations or paraphrases of each other or previously asked prompts**.
-            5. All questions should be at the yearly level only.
-            6. Maintain context: brand, category, pack size.
-            7. Output format:
+                - Current user prompt: "{prompt}"
+                - Relevant KPIs: {kpi_names}
+                - Relevant columns: {flat_columns}
+                - Previous drill-down prompts: {past_prompts_text}
 
-            KPIs: [kpi1, kpi2, ...]
-            Prompts:
-            - prompt 1
-            - prompt 2
-            ...
-            """
+                Your task:
+
+                1. Generate exactly 5 **distinct** and insightful drill-down questions, each clearly focused on a different KPI or business angle (use columns/KPIs for scope).
+                2. **Each question must be unique, directly useful for business analysis, and NOT a rephrase, variation, or simple grammatical change of any other question or the input prompt.**
+                3. Prompts should focus, as appropriate, on yearly trends — avoid more than two years per prompt.
+                4. Where relevant, use context such as brand, category, or pack size precisely.
+                5. Avoid general or vague business questions; each prompt must be specific enough to translate directly into an SQL query.
+                6. Do NOT repeat or slightly vary existing questions. For examples of past prompts to avoid, see Provided Previous Prompts.
+                7. ONLY output structured results in this exact format—no extra text, explanations, or markdown:
+
+                KPIs: [list all KPIs this round of prompts covers]
+                Prompts:
+                - prompt 1
+                - prompt 2
+                - prompt 3
+                - prompt 4
+                - prompt 5
+                """
 
         messages = [
             {"role": "system", "content": system_msg},
@@ -1798,35 +1847,20 @@ class SmartQueryEngine:
 
         text_response = response.choices[0].message.content.strip()
 
-        # Parse the returned prompts
-        new_prompts = []
-        prompts_start = False
-        for line in text_response.splitlines():
-            line = line.strip()
-            if line.lower().startswith("prompts:"):
-                prompts_start = True
-                continue
-            if prompts_start and line.startswith("-"):
-                prompt_text = line.lstrip("-").strip()
-                # Check simple uniqueness heuristics
-                if prompt_text and prompt_text not in self.asked_prompts and all(prompt_text.lower() not in p.lower() and p.lower() not in prompt_text.lower() for p in self.asked_prompts):
-                    new_prompts.append(prompt_text)
-                    self.asked_prompts.add(prompt_text)
-
         # Cache full response text per prompt
         self.drill_down_cache[prompt] = text_response
 
         return text_response, int(response.usage.total_tokens)
 
 
-    def handle_prompt(self, user_prompt: str, intent=None):
+    def handle_prompt(self, user_prompt: str, intent=None, previous_prompts=[]):
         # intent = self.intent
         print(f"Intent: {intent}")
         if intent == "simple":
             # return self.generate_simple_sql(user_prompt)
             return "It Has generated simple query already"
         elif intent == "analysis":
-            breakdown_text, total_tokens_for_drill_down_questions = self.extract_kpis_and_prompts(user_prompt)
+            breakdown_text, total_tokens_for_drill_down_questions = self.extract_kpis_and_prompts(user_prompt, previous_prompts=previous_prompts)
             prompts = []
             total_tokens_count = total_tokens_for_drill_down_questions
             capturing = False
@@ -1962,6 +1996,28 @@ class SmartQueryEngine:
         except Exception as e:
             raise RuntimeError(f"Failed to execute SQL: {e}")
 
+def compress_schema(schema_json, relevant_tables):
+    output = []
+
+    for table_name, table_info in schema_json.items():
+        if table_name in relevant_tables:
+            output.append(f"Table: {table_name}\n")
+            output.append("Columns:")
+            output.append("- " + ", ".join(table_info.get("columns", [])))
+
+            if "categorical_info" in table_info:
+                output.append("\nCategorical Fields:")
+                for col, meta in table_info["categorical_info"].items():
+                    definition = meta.get("definition", "").strip()
+                    samples_list = meta.get("sample_values", [])[:3]
+                    samples = ", ".join(str(s) for s in samples_list)
+                    output.append(f"- {col}: {definition} Examples: {samples}")
+
+            output.append("\n")
+
+    return "\n".join(output)
+
+
 
 if __name__ == "__main__":
     # Initialize with your OpenAI API key
@@ -1977,6 +2033,7 @@ if __name__ == "__main__":
     # test_query = "can you provide the metric performance of Brand 1"      
     # test_query = "What is the Sales Growth Percentage of Brand 1 with a pack size of 180 for the last year?"    
     test_query = "What is the Household Penetration Growth of Brand 1 for the last year?"    
+    # test_query = "how has the average frequency of purchase for brand 1 changed over the last year?"    
     # test_query = "What is the Sales growth percentage and Household Penetration Growth of Brand 1 for the last year?"    
     # test_query = "can you provide the household penetration growth of brand 1 for the past three years?"    
     # test_query = "What is the Household Penetration of Brand 1 for the last year?"    
@@ -2026,10 +2083,31 @@ if __name__ == "__main__":
     # print(sql)
     # print(tokens_used)
 
-    # Testing Drill Down Questions.
-    ddq, tu = smart_engine.extract_kpis_and_prompts(test_query)
-    print(ddq)
-    print(tu)
+    # # Testing Drill Down Questions.
+    # ddq, tu = smart_engine.extract_kpis_and_prompts(test_query)
+    # print(ddq)
+    # print(tu)
+
+    # Testing column names:
+    # For Relevant tables
+    relevant_tables = smart_engine.extract_relevant_table(test_query) 
+    # print(relevant_tables)
+    # relevant_tables_columns = []
+    # for table in relevant_tables:
+    #     columns = smart_engine.fetch_column_names(table)
+    #     relevant_tables_columns.append(columns)
+    # # Flatten into a simple list
+    # flat_columns = [col for sublist in relevant_tables_columns for col in sublist]
+    # print(flat_columns)
+
+    # Testing for table context to failed queries.
+    # table_contexts = [smart_engine.build_table_context(table) for table in relevant_tables]
+    # combined_table_context = "\n\n".join(table_contexts)
+    # print(combined_table_context)
+
+    compressed_schema = compress_schema(schema_json, relevant_tables=relevant_tables)
+    print(compressed_schema)
+
 
 #     # Validate/fix if desired
 #     validation_results = smart_engine.validate_queries_with_explain([{"prompt": result["original_query"], "sql": sql}])
