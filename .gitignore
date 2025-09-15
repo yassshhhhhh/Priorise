@@ -8,7 +8,7 @@
 !database.py
 !Logo.jpg
 !packages.txt
-!utils.txt
+!utils.py
 
 # (Optional) Allow .gitignore itself to be tracked
 !.gitignore
