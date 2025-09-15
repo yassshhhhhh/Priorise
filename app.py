@@ -83,7 +83,12 @@ if 'main_answer_df' not in st.session_state:
     st.session_state['main_answer_df'] = None
 if "database_previous_prompts" not in st.session_state:
     st.session_state.database_previous_prompts = []
-
+if "last_generated_sql" not in st.session_state:
+    st.session_state['last_generated_sql'] = ''
+if "query_sql_map" not in st.session_state:
+    st.session_state['query_sql_map'] = {}
+if "selected_sql_for_edit" not in st.session_state:
+    st.session_state['selected_sql_for_edit'] = ''
 # if "current_query_token_usage" not in st.session_state:
 #     st.session_state.current_query_token_usage = 0
 # token_usage_placeholder = st.empty()
@@ -150,7 +155,7 @@ def calculate_file_hash(file_content):
 # Add custom CSS to hide file uploader size limit text
 st.markdown(mark_D, unsafe_allow_html=True)
 # Near the top of your file, after the title
-tab1, tab2 = st.tabs(["Main", "Chat History"])
+tab1, tab2, tab3 = st.tabs(["Main", "SQL", "Chat History"])
 
 # Initialize OpenAI client
 llm = OpenAI(api_token=os.getenv("OPEN_API_KEY"), temperature=0, seed=42, model="gpt-4o")
@@ -249,9 +254,9 @@ with tab1:
                             st.write(f'- {col} - {data_dict[col]}', unsafe_allow_html=True)
         # st.session_state.debug_mode = st.checkbox("Enable Debug Mode", value=st.session_state.debug_mode)
         # st.session_state.use_tesseract = st.checkbox("Use Tesseract OCR", value=st.session_state.use_tesseract)
-
+        # Assume this dictionary saved in session state:
     # Main content
-    st.write("---")
+    # st.write("---")
     st.subheader("How can I help you?")
     temp_query = st.text_input("Enter your question:")
 
@@ -275,6 +280,7 @@ with tab1:
     with col2:
         if st.button("Query Knowledge Base", key="kb_btn"):
             if temp_query:
+                st.session_state.current_query_token_usage = 0
                 st.session_state.should_query_kb = True
                 st.session_state.current_query = temp_query
 
@@ -1285,7 +1291,10 @@ with tab1:
 
             engine = st.session_state.engine
 
-            init_sql, tokens_used_for_init_sql = engine.generate_simple_sql(result["original_query"])
+            if y_intent == 'compare':
+                init_sql, tokens_used_for_init_sql = engine.generate_compare_sql(result["original_query"])
+            else:
+                init_sql, tokens_used_for_init_sql = engine.generate_simple_sql(result["original_query"])
             # st.code(init_sql, language="sql")
             add_token_usage(tokens_used_for_init_sql, result["original_query"], usage_type="Initial SQL generation")
 
@@ -1301,7 +1310,8 @@ with tab1:
                 cleaned_query = fixed_sql.replace("```sql", "").replace("```", "").replace("\n", "").strip()
                 try:
                     result_df = engine.execute_sql(cleaned_query)
-                    
+                    st.session_state['last_generated_sql'] = cleaned_query
+                    st.session_state['query_sql_map'][result["original_query"]] = cleaned_query
                     # st.dataframe(result_df)
                     # For Showing Initial Sql table
                     st.session_state['main_answer_df'] = result_df
@@ -1312,6 +1322,8 @@ with tab1:
             elif validation_results["successful"]:
                 try:
                     result_df = engine.execute_sql(init_sql)
+                    st.session_state['last_generated_sql'] = init_sql
+                    st.session_state['query_sql_map'][result["original_query"]] = init_sql
                     # st.dataframe(result_df)
                     # For Showing Initial Sql table
                     st.session_state['main_answer_df'] = result_df
@@ -1323,7 +1335,7 @@ with tab1:
             filtered_result = engine.handle_prompt(st.session_state.last_query, intent=y_intent, previous_prompts=prompts_to_drill[:-1])
             print("###############################################")
             print(filtered_result)
-            if y_intent != 'simple':
+            if y_intent != 'simple' and y_intent != 'compare':
                 add_token_usage(filtered_result['total_tokens'], st.session_state.last_query, usage_type="Drill down question with SQL generation")
 
             print("###############################################")
@@ -1331,6 +1343,10 @@ with tab1:
             if y_intent == 'simple':
                 st.session_state.filtered_results = filtered_result
                 st.session_state.intent_type = "simple"
+                st.session_state.should_run_filtered = False
+            if y_intent == 'compare':
+                st.session_state.filtered_results = filtered_result
+                st.session_state.intent_type = "compare"
                 st.session_state.should_run_filtered = False
             elif y_intent == 'analysis':
                 if hasattr(filtered_result, 'get') and "sub_prompts_sql" in filtered_result:
@@ -1344,6 +1360,7 @@ with tab1:
 
     # --- Always Show Main Answer Table --- #
     if st.session_state['main_answer_df'] is not None:
+        
         df_to_show = st.session_state['main_answer_df'].copy()
         # Format numeric columns with commas and two decimals
         df = df_to_show.copy()
@@ -1460,6 +1477,7 @@ with tab1:
                     add_token_usage(fix_results['fixed_results'][0]['token_used'], prompt, usage_type="For Fixing failed queries.")
                     sql_cleaned_query = sql.replace("```sql", "").replace("```", "").replace("\n", "").strip()
                     result_df = engine.execute_sql(sql_cleaned_query)
+                    st.session_state['query_sql_map'][prompt] = sql_cleaned_query
                     df = result_df.copy()
                     # Reset index to remove index column from output
                     df = df.reset_index(drop=True)
@@ -1482,6 +1500,7 @@ with tab1:
                     
                 elif validation_results["successful"]:
                     result_df = engine.execute_sql(sql)
+                    st.session_state['query_sql_map'][prompt] = sql
                     df = result_df.copy()
 
                     # Reset index to remove index column from output
@@ -2487,1055 +2506,64 @@ with tab1:
 
     display_token_usage()
 
-    # Passing the query to filtered.py script 
-    # y_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    # y_processor = QueryProcessor(openai_api_key=os.getenv("OPENAI_API_KEY"))
-    # kpi_selector = KPISelector()
-    # y_result = y_processor.process_query(temp_query)
-    # y_intent = y_result['intent']
+# Assume this dictionary saved in session state:
+query_sql_map = st.session_state.get('query_sql_map', {})
+# print(query_sql_map)
+# Sidebar expanded section for queries
+with st.sidebar.expander("Queries History", expanded=True):
+    for i, user_query in enumerate(query_sql_map.keys()):
+        if st.button(user_query, key=f"history_btn_{i}"):
+            # When user clicks, load stored SQL query into session state
+            st.session_state['selected_sql_for_edit'] = query_sql_map[user_query]
+            st.session_state['sql_text_area_val'] = query_sql_map[user_query]   # <-- programmatically update text area
+            st.session_state['selected_user_query_for_sql'] = user_query  # <-- Save the user query text
 
-    # if y_intent == "analysis":
-    #     # Start Filtered Data Program
-    #     print("\n=== SQL Execution Plan ===")
-    #     for step in y_result["sql_plan"]:
-    #         print(f"- {step}")
-        
-    #     # Get and display relevant KPIs
-    #     selected = kpi_selector.select_relevant_kpis(
-    #         prompt=y_result['original_query'], 
-    #         intent=y_result['intent']  # Fixed variable name from intnt to result['intent']
-    #     )
-        
-    #     if selected:
-    #         print("\n=== Recommended KPIs ===")
-    #         for kpi, details in selected.items():
-    #             print(f"\n{kpi}:")
-    #             print(f"  Definition: {details['definition']}")
-    #             print(f"  Calculation: {details['logic']}")
-    #             print(f"  Tables: {', '.join(details['tables'])}")
-        
+# On first run, if sql_text_area_val not set, provide a default (not strictly necessary if you want it blank)
+if 'sql_text_area_val' not in st.session_state:
+    st.session_state['sql_text_area_val'] = st.session_state.get('last_generated_sql', '')
 
-    #     DB_CONFIG = {
-    #             "host": os.getenv("DB_HOST"),
-    #             "database": os.getenv("DB_NAME"),
-    #             "user": os.getenv("DB_USER"),
-    #             "password": os.getenv("DB_PASSWORD"),
-    #             "port": os.getenv("DB_PORT")
-    #         }
+# SQL Tab
 
-    # #     engine = SmartQueryEngine(client=client, intent=intent, schema_json=schema_json, db_config=DB_CONFIG)
-    #     engine = SmartQueryEngine(
-    #         client=y_client,
-    #         intent=y_intent,
-    #         schema_json=schema_json,
-    #         db_config=DB_CONFIG  # This must be properly configured
-    #     )
-    #     y_result = engine.handle_prompt(temp_query)
-        
-    #         # Type-safe checking
-    #     if hasattr(y_result, "get") and "sub_prompts_sql" in y_result:
-    #         validation = engine.validate_queries_with_explain(y_result["sub_prompts_sql"])
-    #         print("validation", validation)
-            
-    #         print("\nSuccessful queries:")
-    #         for success in validation["successful"]:
-    #             print(f"- {success['prompt']}")
-    #             print(f"  SQL: {success['sql'][:100]}...")  # Show first 100 chars
-                
-    #         print("\nFailed queries:")
-    #         for failure in validation["failed"]:
-    #             print(f"- {failure['prompt']}")
-    #             print(f"  Error: {failure['error']}")
+with tab2:
+    st.subheader('Generated SQL Query')
+    # Show selected user question above SQL input if available
+    selected_question = st.session_state.get('selected_user_query_for_sql', '')
+    if selected_question:
+        st.markdown(f"<p style='font-size:18px; font-weight:bold;'>Selected Question: {selected_question}</p>", unsafe_allow_html=True)
+    sql_query = st.text_area("SQL Query:", key="sql_text_area_val", height=200)
 
-    #         if len(validation["successful"]) != 0:
-    #             # Extract all prompts
-    #             prompts = [data["prompt"] for data in validation["successful"]]
+    if st.button("Execute SQL Query"):
+        try:
+            # Execute the query and get dataframe
+            df_result = st.session_state.engine.execute_sql(sql_query)
+            # st.session_state['last_generated_sql'] = sql_query  # Save current SQL
+            # st.session_state['selected_sql_for_edit'] = sql_query
 
-    #             # Create multiselect box
-    #             selected_prompts = st.multiselect("Select one or more prompts:", prompts)
+            df = df_result.copy()
+            # Reset index to remove index column from output
+            df = df.reset_index(drop=True)
 
-    #             # Show what user selected
-    #             if st.button("Submit"):
-    #                 if selected_prompts:
-    #                     st.write("You selected:")
-    #                     for prompt in selected_prompts:
-    #                         st.markdown(f"- {prompt}")
-    #         else: 
-    #             st.write("No Filtered Data Available")
-    #     else:
-    #         print("Unexpected result format:", y_result)
+            def format_number(x, is_year=False):
+                if pd.isna(x):
+                    return ""
+                if is_year:
+                    return f"{int(x)}"
+                else:
+                    return f"{x:,.2f}"
 
-    # # elif(1 > 2): #Here If the user selects the last option from the multiselect, proceed for unfiltered data.
-    # #     pass   
-# ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+            for col in df.columns:
+                if col.lower() == "year":
+                    df[col] = df[col].map(lambda x: format_number(x, is_year=True))
+                elif pd.api.types.is_numeric_dtype(df[col]):
+                    df[col] = df[col].map(format_number)
 
-    # EXCEL_FILE_PATH = "callback_data.xlsx"
-    # user_defined_path = os.getcwd()
-    # udp = os.path.join(user_defined_path, "exports", "charts")
-
-    # # Function to parse callback output
-    # def parse_callback_output(cb) -> dict:
-    #     output_lines = str(cb).split("\n")
-    #     parsed_output = {
-    #         "total_tokens": int(output_lines[0].split(":")[1].strip()),
-    #         "prompt_tokens": int(output_lines[1].split(":")[1].strip()),
-    #         "completion_tokens": int(output_lines[2].split(":")[1].strip()),
-    #         "total_cost": float(output_lines[3].split(":")[1].strip().replace("$", "").strip()),
-    #     }
-    #     return parsed_output
-
-    # # Function to append data to Excel
-    # def append_to_excel(file_path: str, data: dict):
-    #     if not os.path.exists(file_path):
-    #         wb = Workbook()
-    #         ws = wb.active
-    #         ws.append(["Total Tokens", "Prompt Tokens", "Completion Tokens", "Total Cost (USD)"])
-    #         wb.save(file_path)
-    #     wb = openpyxl.load_workbook(file_path)
-    #     ws = wb.active
-    #     ws.append([data["total_tokens"], data["prompt_tokens"], data["completion_tokens"], data["total_cost"]])
-    #     wb.save(file_path)
-
-
-    # # Add these new functions after the imports
-    # def extract_images_from_pdf(pdf_file):
-    #     """Extract images and charts from PDF using PyMuPDF with focus on chart detection"""
-    #     images = []
-    #     temp_file = None
-    #     doc = None
-        
-    #     try:
-    #         # Create a temporary file to save the uploaded PDF
-    #         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
-    #         temp_file_path = temp_file.name
-    #         temp_file.write(pdf_file.read())
-    #         temp_file.close()
-            
-    #         # Open the PDF file
-    #         doc = fitz.open(temp_file_path)
-            
-    #         for page_num in range(len(doc)):
-    #             page = doc[page_num]
-                
-    #             # Method 1: Standard image extraction
-    #             image_list = page.get_images()
-    #             for img_index, img in enumerate(image_list):
-    #                 xref = img[0]
-    #                 base_image = doc.extract_image(xref)
-    #                 image_bytes = base_image["image"]
-                    
-    #                 # Convert to PIL Image
-    #                 image = Image.open(io.BytesIO(image_bytes))
-    #                 if is_valid_image_size(image):
-    #                     images.append({
-    #                         'page': page_num + 1,
-    #                         'index': img_index,
-    #                         'image': image,
-    #                         'format': base_image["ext"],
-    #                         'method': 'direct_extraction',
-    #                         'width': image.width,
-    #                         'height': image.height
-    #                     })
-                
-    #             # Method 2: Extract potential chart regions by analyzing page content
-    #             # Get all drawings on the page
-    #             paths = page.get_drawings()
-    #             if paths:
-    #                 # Extract regions with significant drawing content
-    #                 regions = analyze_drawing_regions(paths)
-    #                 for region_index, region in enumerate(regions):
-    #                     try:
-    #                         # Render the region with higher resolution
-    #                         zoom = 2  # Increase if needed for better quality
-    #                         mat = fitz.Matrix(zoom, zoom)
-    #                         pix = page.get_pixmap(matrix=mat, clip=region)
-                            
-    #                         # Convert to PIL Image
-    #                         img_data = Image.frombytes("RGB", [pix.width, pix.height], pix.tobytes())
-                            
-    #                         if is_valid_image_size(img_data):
-    #                             images.append({
-    #                                 'page': page_num + 1,
-    #                                 'index': f'chart_{region_index}',
-    #                                 'image': img_data,
-    #                                 'format': 'png',
-    #                                 'method': 'region_extraction',
-    #                                 'width': img_data.width,
-    #                                 'height': img_data.height,
-    #                                 'bbox': [region.x0, region.y0, region.x1, region.y1]
-    #                             })
-    #                     except Exception as e:
-    #                         print(f"Error extracting region: {e}")
-            
-    #         return images
-            
-    #     except Exception as e:
-    #         st.error(f"Error extracting images from PDF: {e}")
-    #         return []
-        
-    #     finally:
-    #         if doc:
-    #             doc.close()
-    #         if temp_file and os.path.exists(temp_file.name):
-    #             try:
-    #                 os.unlink(temp_file.name)
-    #             except Exception as e:
-    #                 print(f"Error removing temporary file: {e}")
-
-    # def is_valid_image_size(image):
-    #     """Check if image meets minimum size requirements"""
-    #     MIN_WIDTH = 100
-    #     MIN_HEIGHT = 100
-    #     MAX_DIMENSION = 4000  # Prevent extremely large images
-        
-    #     return (MIN_WIDTH <= image.width <= MAX_DIMENSION and 
-    #             MIN_HEIGHT <= image.height <= MAX_DIMENSION)
-
-    # def analyze_drawing_regions(paths):
-    #     """Analyze drawing paths to identify potential chart regions"""
-    #     regions = []
-        
-    #     if not paths:
-    #         return regions
-        
-    #     # Group nearby paths that might form a chart
-    #     current_group = []
-        
-    #     for path in paths:
-    #         rect = path['rect']  # Get the bounding rectangle
-            
-    #         # Skip tiny drawings
-    #         if rect.width < 20 or rect.height < 20:
-    #             continue
-            
-    #         if current_group:
-    #             # Check if this path is close to the current group
-    #             last_rect = current_group[-1]['rect']
-    #             if (abs(rect.x0 - last_rect.x1) < 50 and 
-    #                 abs(rect.y0 - last_rect.y1) < 50):
-    #                 current_group.append(path)
-    #     else:
-    #             current_group.append(path)
-        
-    #     # Don't forget the last group
-    #     if len(current_group) >= 3:
-    #         merged_rect = merge_rects([p['rect'] for p in current_group])
-    #         if merged_rect.width >= 100 and merged_rect.height >= 100:
-    #             regions.append(merged_rect)
-        
-    #     return regions
-
-    # def merge_rects(rects):
-    #     """Merge multiple rectangles into one bounding rectangle"""
-    #     if not rects:
-    #         return None
-        
-    #     x0 = min(rect.x0 for rect in rects)
-    #     y0 = min(rect.y0 for rect in rects)
-    #     x1 = max(rect.x1 for rect in rects)
-    #     y1 = max(rect.y1 for rect in rects)
-        
-    #     # Add some padding
-    #     padding = 10
-    #     return fitz.Rect(x0 - padding, y0 - padding, x1 + padding, y1 + padding)
-
-    # def extract_images_from_pptx(pptx_file):
-    #     """Extract images from PowerPoint file"""
-    #     images = []
-    #     try:
-    #         prs = Presentation(pptx_file)
-            
-    #         for slide_num, slide in enumerate(prs.slides):
-    #             for shape_num, shape in enumerate(slide.shapes):
-    #                 if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
-    #                     image_stream = io.BytesIO(shape.image.blob)
-    #                     image = Image.open(image_stream)
-    #                     images.append({
-    #                         'slide': slide_num + 1,
-    #                         'index': shape_num,
-    #                         'image': image,
-    #                         'format': image.format.lower()
-    #                     })
-    #         return images
-    #     except Exception as e:
-    #         st.error(f"Error extracting images from PPTX: {e}")
-    #         return []
-
-    # def convert_pptx_to_pdf(input_dir, output_dir):
-    #     """Convert PPTX to PDF using platform-specific methods"""
-    #     try:
-    #         if os.name == 'nt':  # Windows
-    #             # Import pythoncom only for Windows
-    #             import pythoncom
-    #             # Initialize COM for this thread
-    #             pythoncom.CoInitialize()
-    #             try:
-    #                 from pptxtopdf import convert
-    #                 convert(input_dir, output_dir)
-    #             finally:
-    #                 # Uninitialize COM
-    #                 pythoncom.CoUninitialize()
-    #         else:  # Linux/Unix
-    #             # Check if libreoffice is installed
-    #             try:
-    #                 import subprocess
-    #                 subprocess.run(['libreoffice', '--version'], capture_output=True, check=True)
-    #             except (subprocess.CalledProcessError, FileNotFoundError):
-    #                 raise RuntimeError("LibreOffice is not installed. Please install it using: sudo apt-get install libreoffice")
-                
-    #             # Get the input file path
-    #             input_file = os.path.join(input_dir, os.listdir(input_dir)[0])  # Get the first file in the directory
-                
-    #             # Convert using libreoffice with explicit file path
-    #             subprocess.run([
-    #                 'libreoffice',
-    #                 '--headless',
-    #                 '--convert-to', 'pdf',
-    #                 '--outdir', output_dir,
-    #                 input_file
-    #             ], check=True)
-                
-    #             # Add debug logging
-    #             if st.session_state.debug_mode:
-    #                 st.write(f"Input file: {input_file}")
-    #                 st.write(f"Output directory: {output_dir}")
-    #                 st.write(f"Files in output directory: {os.listdir(output_dir)}")
-                
-    #     except Exception as e:
-    #         raise RuntimeError(f"Error converting PPTX to PDF: {str(e)}")
-
-    # def process_pptx_with_gpt4v(pptx_file):
-    #     """Process PPTX using GPT-4 Vision by first converting to PDF then processing like a PDF"""
-    #     # Calculate file hash
-    #     file_content = pptx_file.read()
-    #     file_hash = calculate_file_hash(file_content)
-        
-    #     # Check if file exists in database with same hash
-    #     doc_data = db.get_document(pptx_file.name)
-    #     if doc_data and doc_data["file_hash"] == file_hash:
-    #         if st.session_state.debug_mode:
-    #             st.write(f"Using cached data from database for PPT: {pptx_file.name}")
-    #         return doc_data["content"]
-        
-    #     # Reset file pointer for processing
-    #     pptx_file.seek(0)
-        
-    #     # Create temporary directories
-    #     temp_input_dir = tempfile.mkdtemp()
-    #     temp_output_dir = tempfile.mkdtemp()
-        
-    #     try:
-    #         # Save uploaded file to temp directory
-    #         temp_input_path = os.path.join(temp_input_dir, pptx_file.name)
-    #         with open(temp_input_path, 'wb') as f:
-    #             f.write(file_content)
-            
-    #         # Convert PPTX to PDF using platform-specific method
-    #         convert_pptx_to_pdf(temp_input_dir, temp_output_dir)
-            
-    #         # Find the converted PDF file
-    #         pdf_filename = os.path.splitext(pptx_file.name)[0] + '.pdf'
-    #         pdf_path = os.path.join(temp_output_dir, pdf_filename)
-            
-    #         if not os.path.exists(pdf_path):
-    #             raise FileNotFoundError(f"PDF file not found at expected location: {pdf_path}")
-            
-    #         if st.session_state.debug_mode:
-    #             st.write(f"Successfully converted PPTX to PDF: {pdf_path}")
-            
-    #         # Process the PDF using our existing PDF processing logic
-    #         with open(pdf_path, 'rb') as pdf_file:
-    #             # Initialize OpenAI client
-    #             # client = OpenAIClient()
-                
-    #             # Convert PDF pages to images
-    #             images = convert_from_path(pdf_path)
-    #             page_texts = []
-                
-    #             for i, image in enumerate(images):
-    #                 # Convert image to base64
-    #                 buffered = BytesIO()
-    #                 image.save(buffered, format="PNG")
-    #                 base64_image = base64.b64encode(buffered.getvalue()).decode()
-                    
-    #                 # Extract text using GPT-4V
-    #                 response = client.chat.completions.create(
-    #                     model="gpt-4o",
-    #                     messages=[
-    #                         {
-    #                             "role": "user",
-    #                             "content": [
-    #                                 {
-    #                                     "type": "text",
-    #                                     "text": "Extract all content from this slide. Include text, describe any images, charts, or diagrams, and maintain the formatting and structure."
-    #                                 },
-    #                                 {
-    #                                     "type": "image_url",
-    #                                     "image_url": {
-    #                                         "url": f"data:image/png;base64,{base64_image}",
-    #                                         "detail": "high"
-    #                                     }
-    #                                 }
-    #                             ]
-    #                         }
-    #                     ],
-    #                     max_tokens=1000
-    #                 )
-                    
-    #                 extracted_text = response.choices[0].message.content
-    #                 page_texts.append({
-    #                     "slide_number": i + 1,
-    #                     "text": extracted_text,
-    #                     "char_count": len(extracted_text),
-    #                     "word_count": len(extracted_text.split())
-    #                 })
-                    
-    #                 if st.session_state.debug_mode:
-    #                     with st.expander(f"Debug: Extracted Content Slide {i+1}", expanded=False):
-    #                         st.write("#### Extracted Content")
-    #                         st.text_area("Text Content", extracted_text, height=300)
-    #                         st.write(f"Characters extracted: {len(extracted_text)}")
-    #                         st.write(f"Words extracted: {len(extracted_text.split())}")
-                
-    #             # Combine all slide texts
-    #             combined_text = "\n\n".join([page["text"] for page in page_texts])
-    #             result = {
-    #                 "text": combined_text,
-    #                 "slides/pages": page_texts,
-    #                 "processed_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    #             }
-                
-    #             # Save to database
-    #             db.save_document(
-    #                 filename=pptx_file.name,
-    #                 file_type="pptx",
-    #                 content=result,
-    #                 file_hash=file_hash
-    #             )
-                
-    #             return result
-                
-    #     except Exception as e:
-    #         if st.session_state.debug_mode:
-    #             st.error(f"Error during PDF conversion/processing: {str(e)}")
-    #         raise e
-            
-    #     finally:
-    #         # Clean up temporary directories
-    #         try:
-    #             if os.path.exists(temp_input_dir):
-    #                 shutil.rmtree(temp_input_dir)
-    #             if os.path.exists(temp_output_dir):
-    #                 shutil.rmtree(temp_output_dir)
-    #         except Exception as e:
-    #             if st.session_state.debug_mode:
-    #                 st.error(f"Error cleaning up temporary files: {str(e)}")
-
-    # # Add new function for GPT-4 Vision extraction
-    # def extract_text_with_gpt4v(pdf_file):
-    #     """Extract text from PDF using GPT-4 Vision"""
-    #     try:
-    #         # Create a temporary file to save the uploaded PDF
-    #         temp_file = None
-    #         text_results = []
-            
-    #         try:
-    #             # Save uploaded file to temporary file
-    #             temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
-    #             temp_file.write(pdf_file.read())
-    #             temp_file.close()
-                
-    #             try:
-    #                 # Convert PDF pages to images using pdf2image
-    #                 images = convert_from_path(temp_file.name)
-                    
-    #                 # Process each page
-    #                 for i, image in enumerate(images):
-    #                     if st.session_state.debug_mode:
-    #                         with st.expander(f"Debug: GPT-4V Processing Page {i+1}", expanded=False):
-    #                             st.write("---")
-    #                             st.write(f"### Processing Page {i+1}")
-    #                             st.image(image, caption=f"Page {i+1}", use_column_width=True)
-                        
-    #                     # Convert PIL Image to bytes
-    #                     img_byte_arr = io.BytesIO()
-    #                     image.save(img_byte_arr, format='PNG')
-    #                     img_byte_arr = img_byte_arr.getvalue()
-                        
-    #                     # Encode image to base64
-    #                     base64_image = base64.b64encode(img_byte_arr).decode('utf-8')
-                        
-    #                     # Create GPT-4V prompt with correct image URL format
-    #                     response = client.chat.completions.create(
-    #                         model="gpt-4o",
-    #                         messages=[
-    #                             {
-    #                                 "role": "user",
-    #                                 "content": [
-    #                                     {
-    #                                         "type": "text",
-    #                                         "text": "Extract all text content from this image. Preserve formatting and structure. Include any relevant tables, charts, or diagrams descriptions."
-    #                                     },
-    #                                     {
-    #                                         "type": "image_url",
-    #                                         "image_url": {
-    #                                             "url": f"data:image/png;base64,{base64_image}",
-    #                                             "detail": "high"
-    #                                         }
-    #                                     }
-    #                                 ]
-    #                             }
-    #                         ],
-    #                         max_tokens=1000
-    #                     )
-                        
-    #                     extracted_text = response.choices[0].message.content
-                        
-    #                     if st.session_state.debug_mode:
-    #                         with st.expander(f"Debug: Extracted Content Page {i+1}", expanded=False):
-    #                             st.write("#### Extracted Content")
-    #                             st.text_area("Text Content", extracted_text, height=300)
-    #                             st.write(f"Characters extracted: {len(extracted_text)}")
-    #                             st.write(f"Words extracted: {len(extracted_text.split())}")
-                        
-    #                     text_results.append(extracted_text)
-                    
-    #                 return "\n\n".join(text_results)
-                    
-    #             except Exception as e:
-    #                 if st.session_state.debug_mode:
-    #                     st.error(f"Error processing PDF: {str(e)}")
-    #                 raise e
-                    
-    #         finally:
-    #             # Clean up temporary file
-    #             if temp_file and os.path.exists(temp_file.name):
-    #                 try:
-    #                     os.unlink(temp_file.name)
-    #                 except Exception as e:
-    #                     if st.session_state.debug_mode:
-    #                         st.error(f"Error removing temporary file: {e}")
-                    
-    #     except Exception as e:
-    #         st.error(f"Error in GPT-4V processing: {e}")
-    #         if st.session_state.debug_mode:
-    #             st.error(f"Detailed error information: {str(e)}")
-    #         return ""
-
-    # # Prepare datasets for SmartDatalake and process PDFs immediately
-    # if uploaded_files:
-    #     dataframes = []
-    #     pdf_texts = []
-    #     ppt_texts = []  # New list for PPT data
-    #     extracted_images = []
-        
-    #     for uploaded_file in uploaded_files:
-    #         try:
-    #             if uploaded_file.name.endswith('.pptx'):
-    #                 # Process PPTX files
-    #                 uploaded_file.seek(0)
-    #                 pptx_result = process_pptx_with_gpt4v(uploaded_file)
-    #                 if pptx_result:
-    #                     ppt_texts.append({
-    #                         "name": uploaded_file.name,
-    #                         "text": pptx_result["text"],
-    #                         "slides": pptx_result["slides/pages"]
-    #                     })
-                    
-    #                 # Extract images from PPTX
-    #                 uploaded_file.seek(0)
-    #                 pptx_images = extract_images_from_pptx(uploaded_file)
-    #                 extracted_images.extend([{
-    #                     'source': uploaded_file.name,
-    #                     'type': 'pptx',
-    #                     **img
-    #                 } for img in pptx_images])
-                
-    #             elif uploaded_file.name.endswith('.pdf'):
-    #                 # Calculate file hash
-    #                 file_content = uploaded_file.read()
-    #                 file_hash = calculate_file_hash(file_content)
-                    
-    #                 # Check if file exists in database with same hash
-    #                 doc_data = db.get_document(uploaded_file.name)
-    #                 if doc_data and doc_data["file_hash"] == file_hash:
-    #                     if st.session_state.debug_mode:
-    #                         st.write(f"Using cached data from database for PDF: {uploaded_file.name}")
-    #                     pdf_texts.append({
-    #                         "name": uploaded_file.name,
-    #                         "text": doc_data["content"]["text"],
-    #                         "pages": doc_data["content"]["pages"]
-    #                     })
-    #                 else:
-    #                     # Process new PDF file
-    #                     uploaded_file.seek(0)
-    #                     pdf_reader = PdfReader(uploaded_file)
-    #                     text = ""
-    #                     pages = []
-    #                     for i, page in enumerate(pdf_reader.pages):
-    #                         page_text = page.extract_text() or ""
-    #                         text += page_text
-    #                         pages.append({
-    #                             "page_number": i + 1,
-    #                             "text": page_text,
-    #                             "char_count": len(page_text),
-    #                             "word_count": len(page_text.split())
-    #                         })
-                        
-    #                     result = {
-    #                         "text": text,
-    #                         "pages": pages,
-    #                         "processed_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    #                     }
-                        
-    #                     # Save to database
-    #                     db.save_document(
-    #                         filename=uploaded_file.name,
-    #                         file_type="pdf",
-    #                         content=result,
-    #                         file_hash=file_hash
-    #                     )
-                        
-    #                     pdf_texts.append({
-    #                         "name": uploaded_file.name,
-    #                         "text": text,
-    #                         "pages": pages
-    #                     })
-                
-    #             elif uploaded_file.name.endswith('.csv'):
-    #                 df = pd.read_csv(uploaded_file)
-    #                 dataframes.append(df)
-    #             elif uploaded_file.name.endswith('.xlsx'):
-    #                 df = pd.read_excel(uploaded_file)
-    #                 for col in df.select_dtypes(include=['object']).columns:
-    #                     unique_values_dict[col] = df[col].dropna().unique().tolist()
-    #                 dataframes.append(df)
-    #             else:
-    #                 st.error(f"Unsupported file format: {uploaded_file.name}")
-    #                 continue
-                
-    #         except Exception as e:
-    #             st.error(f"Error loading file '{uploaded_file.name}': {e}")
-    #             continue
-
-    #     # Store extracted images in session state
-    #     st.session_state['extracted_images'] = extracted_images
-
-    #     # Process PDFs into chunks
-    #     if pdf_texts:
-    #         combined_text = "\n".join([pdf["text"] for pdf in pdf_texts])
-    #         text_splitter = RecursiveCharacterTextSplitter(
-    #             chunk_size=1000,
-    #             chunk_overlap=200,
-    #             length_function=len
-    #         )
-    #         chunks = text_splitter.split_text(combined_text)
-    #         st.session_state['pdf_chunks'] = chunks
-
-    #     if dataframes:
-    #         # st.write('dataframes')
-    #         sales_data = SmartDatalake(dataframes, config={"llm": llm, "use_error_correction_framework": True, "data_dict": data_dict})
-    #     else:
-    #         sales_data = None
-    # else:
-    #     sales_data = None
-
-
-    # # Function to generate up to 3 drill-down questions using the LLM's chat method
-    # def generate_drill_down_questions(query, dataframes):
-    #     # Check if we have brand metrics data by looking at the dataframe structure
-    #     def is_brand_metrics_df(df):
-    #         required_columns = ['Brand', 'Date', 'TOM', 'Spontaneous_Awareness', 'MOUB', 'Purchase_6M']
-    #         return all(col in df.columns for col in required_columns)
-        
-    #     # Determine the type of analysis based on the data structure
-    #     has_brand_metrics = any(is_brand_metrics_df(df) for df in dataframes)
-        
-    #     if has_brand_metrics:
-    #         drill_prompt_ppt = dril_ppt.format(query=query)
-    #         response_PPT = client.chat.completions.create(
-    #                 model="gpt-4o",
-    #                 messages=[
-    #                     {"role": "system", "content": "You are an AI assistant."},
-    #                     {"role": "user", "content": drill_prompt_ppt}
-    #                 ],
-    #                 temperature=0,
-    #                 max_tokens=512
-    #             )
-    #         drill_response_PPT = response_PPT.choices[0].message.content
-    #         clean_response_PPT = drill_response_PPT.replace("```python", "").replace("```", "").strip()
-    #         parsed_questions_PPT= ast.literal_eval(clean_response_PPT)
-    #         return {"type":'PPT',"response":parsed_questions_PPT}
-    #     else:
-            
-    #         drill_prompt_main = drill_p_m.format(query=query,
-    #                                              data_dictt=json.dumps(data_dict, indent=2),
-    #                                              unique_values_dict=json.dumps({col: unique_values_dict[col] for col in unique_values_dict if col in data_dict}, indent=2))
-    #         response_main = client.chat.completions.create(
-    #                 model="gpt-4o",
-    #                 messages=[
-    #                     {"role": "system", "content": "You are an AI assistant."},
-    #                     {"role": "user", "content": drill_prompt_main}
-    #                 ],
-    #                 temperature=0,
-    #                 max_tokens=512
-    #             )
-        
-    #         drill_response_main = response_main.choices[0].message.content
-    #         clean_response_main = drill_response_main.replace("```python", "").replace("```", "").strip()
-    #         parsed_questions_main = ast.literal_eval(clean_response_main)
-    #         return {"type":'main',"response":parsed_questions_main}
-
-    # # Function to auto-save chat history
-    # def auto_save_chat_history():
-    #     """Automatically save the chat history after each interaction"""
-    #     if st.session_state['chat_history']:
-    #         # Create a 'chat_history' directory if it doesn't exist
-    #         os.makedirs('chat_history', exist_ok=True)
-            
-    #         # Use a fixed filename with current date
-    #         current_date = datetime.now().strftime("%Y%m%d")
-    #         filename = f"chat_history/chat_history_{current_date}.json"
-            
-    #         # Add timestamp to each chat entry that doesn't have one
-    #         chat_history_with_timestamp = []
-    #         for chat in st.session_state['chat_history']:
-    #             chat_entry = chat.copy()
-    #             if 'timestamp' not in chat_entry:
-    #                 chat_entry['timestamp'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    #             chat_history_with_timestamp.append(chat_entry)
-                
-    #         try:
-    #             with open(filename, 'w', encoding='utf-8') as f:
-    #                 json.dump(chat_history_with_timestamp, f, indent=2, ensure_ascii=False)
-    #         except Exception as e:
-    #             st.error(f"Error auto-saving chat history: {e}")
-
-    # # Add this function to filter data before querying
-    # def preprocess_data_for_state_query(df):
-    #     if 'Region' in df.columns:
-    #         # Keep all rows except those where MARKET starts with 'ALL INDIA'
-    #         return df[~df['Region'].str.startswith('ALL INDIA', na=False)]
-    #     return df
-
-    # # Function to retrieve relevant chunks based on the query with error handling
-    # def retrieve_relevant_chunks(query, chunks, top_k=3):
-    #     if not chunks:
-    #         st.error("No chunks available to process the query.")
-    #         return []
-    #     prompt = f"""
-    #     Given the query: "{query}", and the following document chunks:
-    #     {json.dumps(chunks[:5], indent=2)} (showing first 5 chunks for brevity),
-    #     identify the top {top_k} most relevant chunks to answer the query.
-    #     Return the indices of these chunks as a list (e.g., [0, 2, 4]).
-    #     """
-    #     try:
-    #         response = client.chat.completions.create(
-    #             model="gpt-4o",
-    #             messages=[
-    #                 {"role": "system", "content": "You are an AI assistant that identifies relevant text chunks."},
-    #                 {"role": "user", "content": prompt}
-    #             ],
-    #             temperature=0,
-    #             max_tokens=100
-    #         )
-    #         response_content = response.choices[0].message.content.strip()
-    #         indices = ast.literal_eval(response_content)
-    #         if not isinstance(indices, list):
-    #             raise ValueError("LLM did not return a valid list of indices")
-    #         return [chunks[i] for i in indices if i < len(chunks)]
-    #     except Exception as e:
-    #         print(f"Error retrieving relevant chunks: {e}")
-    #         return chunks[:top_k]  # Fallback to first top_k chunks
-
-    # def process_pdf_query_page_wise(query, pdf_data):
-    #     """Process query by analyzing each page's content individually"""
-    #     page_responses = []
-        
-    #     # First, analyze each page individually
-    #     for page in pdf_data['pages']:
-    #         # Handle both page_number and slide_number fields
-    #         page_num = page.get('page_number', page.get('slide_number', 1))
-    #         page_prompt = f"""
-    #         Analyzing page {page_num} of the document.
-    #         Content: {page['text']}
-            
-    #         Question: {query}
-            
-    #         If this page contains relevant information to answer the question, provide the relevant details.
-    #         If this page does not contain relevant information, respond with "No relevant information on this page."
-    #         Include page number references in your response.
-    #         """
-            
-    #         response = client.chat.completions.create(
-    #             model="gpt-4o",
-    #             messages=[
-    #                 {"role": "system", "content": "You are analyzing a document page by page."},
-    #                 {"role": "user", "content": page_prompt}
-    #             ],
-    #             temperature=0,
-    #             max_tokens=500
-    #         )
-            
-    #         page_content = response.choices[0].message.content
-    #         if "No relevant information on this page" not in page_content:
-    #             page_responses.append({
-    #                 "page_number": page_num,
-    #                 "content": page_content
-    #             })
-            
-    #         if st.session_state.debug_mode:
-    #             with st.expander(f"Debug: Page {page_num} Analysis", expanded=False):
-    #                 st.write(f"Page {page_num} Content Length: {len(page['text'])}")
-    #                 st.write("Relevant Content Found:" if page_responses else "No Relevant Content")
-    #                 if page_responses:
-    #                     st.write(page_content)
-        
-    #     if not page_responses:
-    #         return "No relevant information found in the document to answer this question."
-        
-    #     # Combine all relevant page responses
-    #     combined_response = "\n\n".join([
-    #         f"From page {resp['page_number']}:\n{resp['content']}"
-    #         for resp in page_responses
-    #     ])
-        
-    #     return combined_response
-
-    # # Process query against stored documents
-    # # Initialize query variable from session state
-    # query = st.session_state.get('current_query', None)
-    
-    # if query and (pdf_texts or ppt_texts) and not sales_data:
-    #     try:
-    #         responses = []
-            
-    #         # Process PPTs
-    #         for ppt_name, ppt_data in [(ppt["name"], ppt) for ppt in ppt_texts]:
-    #             if st.session_state.debug_mode:
-    #                 st.write(f"Analyzing PPT: {ppt_name}")
-                
-    #             try:
-    #                 # Get document from database
-    #                 doc_data = db.get_document(ppt_name)
-    #                 if doc_data:
-    #                     # Use slides/pages for PPT files
-    #                     slides_data = {
-    #                         "pages": doc_data["content"]["slides/pages"]  # Map slides to pages format
-    #                     }
-    #                     response = process_pdf_query_page_wise(query, slides_data)
-                        
-    #                     if "No relevant information found" not in response:
-    #                         responses.append({
-    #                             "source": ppt_name,
-    #                             "type": "ppt",
-    #                             "content": response
-    #                         })
-    #             except Exception as e:
-    #                 if st.session_state.debug_mode:
-    #                     st.error(f"Error processing PPT {ppt_name}: {str(e)}")
-    #                 continue
-            
-    #         # Process PDFs
-    #         for pdf_name, pdf_data in [(pdf["name"], pdf) for pdf in pdf_texts]:
-    #             if st.session_state.debug_mode:
-    #                 st.write(f"Analyzing PDF: {pdf_name}")
-                
-    #             try:
-    #                 # Get document from database
-    #                 doc_data = db.get_document(pdf_name)
-    #                 if doc_data:
-    #                     response = process_pdf_query_page_wise(query, doc_data["content"])
-                        
-    #                     if response != "No relevant information found in the document to answer this question.":
-    #                         responses.append({
-    #                             "pdf_name": pdf_name,
-    #                             "response": response
-    #                         })
-    #             except Exception as e:
-    #                 if st.session_state.debug_mode:
-    #                     st.error(f"Error processing PDF {pdf_name}: {str(e)}")
-    #                 continue
-
-    #         # Synthesize all responses
-    #         if responses:
-    #             try:
-    #                 synthesis_prompt = f"""
-    #                 Based on the following information from various sources:
-    #                 {json.dumps(responses, indent=2)}
-                    
-    #                 Provide a comprehensive answer to: {query}
-                    
-    #                 Requirements:
-    #                 1. Synthesize all relevant information
-    #                 2. For each piece of information, cite its source (PPT or PDF filename)
-    #                 3. Present information in a clear, logical flow
-    #                 4. Focus only on relevant insights
-    #                 5. Format the response as follows:
-    #                    - Main answer with insights
-    #                    - Sources section listing which files contributed to the answer
-    #                 """
-                    
-    #                 final_response = client.chat.completions.create(
-    #                     model="gpt-4o",
-    #                     messages=[
-    #                         {"role": "system", "content": "You are synthesizing information from multiple sources, providing clear answers with proper source citations."},
-    #                         {"role": "user", "content": synthesis_prompt}
-    #                     ],
-    #                     temperature=0,
-    #                     max_tokens=1000
-    #                 )
-                    
-    #                 final_insight = final_response.choices[0].message.content
-    #                 st.write(final_insight)
-                    
-    #                 # Update chat history
-    #                 for chat in st.session_state['chat_history']:
-    #                     if chat["query"] == query:
-    #                         chat["response"] = final_insight
-    #                         break
-    #                 auto_save_chat_history()
-    #             except Exception as e:
-    #                 if st.session_state.debug_mode:
-    #                     st.error(f"Error synthesizing responses: {str(e)}")
-    #                 st.error("An error occurred while processing your query. Please try again.")
-    #         else:
-    #             st.write("No relevant information found in any of the uploaded documents.")
-
-    #     except Exception as e:
-    #         if st.session_state.debug_mode:
-    #             st.error(f"Error in query processing: {str(e)}")
-    #         st.error("An error occurred while processing your query. Please try again.")
-    #     finally:
-    #         st.session_state.should_query = False
-    # elif query and sales_data:
-    #     # Generate drill-down questions using the chat method
-    #         try:
-    #                 drill_questions = generate_drill_down_questions(temp_query, dataframes)
-    #                 dril_results_PPT = []
-    #                 if drill_questions['type'] == 'PPT':
-    #                     st.write("### Drill Down Questions")
-    #                     for dq in drill_questions['response']:
-    #                         st.write(f"{dq}")
-    #                     start_time = time.time()
-
-    #                     for idx, dq in enumerate(drill_questions['response'], 1):
-    #                         try:
-    #                             if 'state' in dq.lower():
-    #                                 filtered_dataframes = [preprocess_data_for_state_query(df) for df in dataframes]
-    #                                 temp_sales_data = SmartDatalake(filtered_dataframes, config={"llm": llm, "use_error_correction_framework": True, "data_dict": data_dict})
-    #                                 dq_result = temp_sales_data.chat(dq)
-    #                             else:
-    #                                 try:
-    #                                     # st.write("Processing for ",dq)
-    #                                     dq_result = sales_data.chat(dq)
-    #                                 except e:
-    #                                     st.error("Error: ",e)
-    #                                 # st.write(f"Result for {idx} ",dq_result)
-    #                             if isinstance(dq_result,pd.DataFrame):
-    #                                 dq_result = dq_result.to_string()
-    #                             else:
-    #                                 dq_result = dq_result
-    #                             dril_results_PPT.append(dq_result)
-                            
-    #                         except Exception as e:
-    #                             st.error(f"Error processing drill-down question: {dq} -> {e}")
-    #                     # st.write(drill_results)
-    #                     total_time = time.time() - start_time
-    #                     st.write(f"Total processing time for all questions: {total_time:.2f} seconds")
-
-    #                     # Consolidate the drill-down results using the chat method
-    #                     consolidation_prompt = consolidation_prompt.format(dril_results_PPT=dril_results_PPT,temp_query=temp_query)
-    #                     response = client.chat.completions.create(
-    #                         model="gpt-4o",
-    #                         messages=[
-    #                             {"role": "system", "content": "You are an AI assistant."},
-    #                             {"role": "user", "content": consolidation_prompt}
-    #                         ],
-    #                         temperature=0,
-    #                         max_tokens=1024
-    #                     )
-    #                     final_insight = response.choices[0].message.content
-    #                     st.write("### Final Consolidated Insight")
-    #                     st.write(final_insight)
-
-    #                     # Update chat history with the response
-    #                     for chat in st.session_state['chat_history']:
-    #                         if chat["query"] == temp_query:
-    #                             chat["response"] = final_insight
-    #                             break
-    #                     auto_save_chat_history()
-    #                     st.session_state.should_query = False
-    #                 else:
-    #                     st.write("### Drill Down Questions")
-    #                     for dq in drill_questions['response']:
-    #                         st.write(f"{dq}")
-
-    #                     # Execute analysis for each drill-down question
-    #                     drill_results = {
-    #                                     "Overall Performance (2022-2024)": [],
-    #                                     "Year-over-Year (YoY) Changes":[],
-    #                                     "Regional Performance (2024)": [],
-    #                                     "Market Penetration (2024)": [],
-    #                                     "Consumer Analysis (2024)": [],
-    #                                     # "Segment Performance (2024)": [],
-    #                                     "Distribution (2024)": []
-    #                                     }
-    #                     keys = list(drill_results.keys())
-    #                     start_time = time.time()
-                        
-    #                     for idx, dq in enumerate(drill_questions['response'], 1):
-    #                         try:
-    #                             if 'state' in dq.lower():
-    #                                 filtered_dataframes = [preprocess_data_for_state_query(df) for df in dataframes]
-    #                                 temp_sales_data = SmartDatalake(filtered_dataframes, config={"llm": llm, "use_error_correction_framework": True, "data_dict": data_dict})
-    #                                 dq_result = temp_sales_data.chat(dq)
-    #                             else:
-    #                                 try:
-    #                                     # st.write("Processing for ",dq)
-    #                                     dq_result = sales_data.chat(dq)
-    #                                 except e:
-    #                                     st.error("Error: ",e)
-    #                                 # st.write(f"Result for {idx}, {keys[idx-1]} ",dq_result)
-    #                             if isinstance(dq_result,pd.DataFrame):
-    #                                 dq_result = dq_result.to_string()
-    #                             else:
-    #                                 dq_result = dq_result
-    #                             drill_results[keys[idx-1]].append(dq_result)
-                            
-    #                         except Exception as e:
-    #                             st.error(f"Error processing drill-down question: {dq} -> {e}")
-    #                     # st.write(drill_results)
-    #                     total_time = time.time() - start_time
-    #                     st.write(f"Total processing time for all questions: {total_time:.2f} seconds")
-
-    #                     # Consolidate the drill-down results using the chat method
-    #                     consolidation_prompt = consolidatin_prompt_main.format(temp_query=temp_query,drill_results=drill_results)
-    #                     response = client.chat.completions.create(
-    #                         model="gpt-4o",
-    #                         messages=[
-    #                             {"role": "system", "content": "You are an AI assistant."},
-    #                             {"role": "user", "content": consolidation_prompt}
-    #                         ],
-    #                         temperature=0,
-    #                         max_tokens=1024
-    #                     )
-    #                     final_insight = response.choices[0].message.content
-    #                     st.write("### Final Consolidated Insight")
-    #                     st.write(final_insight)
-
-    #                     # Update chat history with the response
-    #                     for chat in st.session_state['chat_history']:
-    #                         if chat["query"] == temp_query:
-    #                             chat["response"] = final_insight
-    #                             break
-    #                     auto_save_chat_history()
-    #                     st.session_state.should_query = False
-    #         except Exception as e:
-    #                 st.error(f"An error occurred: {e}")
-    #                 st.session_state.should_query = False
-    #         finally:
-    #             st.session_state.should_query = False
+            if df_result is not None and not df_result.empty:
+                st.write("Query Result:")
+                st.dataframe(df, hide_index=True)
+            else:
+                st.info("No data returned from query.")
+        except Exception as e:
+            st.error(f"Failed to execute SQL: {e}")
 
 # Function to load latest chat history
 def load_latest_chat_history():
@@ -3556,7 +2584,7 @@ def load_latest_chat_history():
 load_latest_chat_history()
 
 # Chat History tab
-with tab2:
+with tab3:
     st.header("Chat History")
     if st.session_state['chat_history']:
         chats_by_date = {}

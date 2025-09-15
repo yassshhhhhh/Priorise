@@ -10,6 +10,7 @@ from typing import List, Dict
 from dotenv import load_dotenv
 import psycopg2 
 import random
+import sqlparse
 
 load_dotenv()
    
@@ -1532,6 +1533,163 @@ class SmartQueryEngine:
             print(f"Failed to fetch column names for {table_name}: {e}")
             return []
 
+    # def generate_compare_sql(self, prompt: str):
+    #     # For Relevant tables
+    #     relevant_tables = self.extract_relevant_table(prompt) 
+    #     relevant_tables_schema = []
+    #     for table in relevant_tables:
+    #         schema = self.fetch_table_schema(table)
+    #         relevant_tables_schema.append(schema)
+    #     relevant_full_schema = "\n\n".join(relevant_tables_schema)
+    #     print(relevant_full_schema)
+
+    #     # For relevant KPI's
+    #     relevant_kpis = self.extract_relevant_kpis(prompt=prompt, relevant_tables=relevant_tables)
+    #     metric_section = self.build_metric_section(relevant_kpis)
+    #     print(metric_section)
+    #     compare_system_prompt = (
+    #         f'You are a Postgres SQL expert.\n'
+    #         f"Table Schema: {relevant_full_schema}"
+    #         f"{metric_section}\n"
+    #         """ *** RULES ***
+    #         - Use only the table and columns above (no schema prefixes). If a table starts with a capital letter, wrap its name in double quotes. 
+    #         - Prevent division by zero (use NULLIF or CASE).
+    #         - Always add the time filter as a separate column in SELECT. For example, include "EXTRACT(YEAR FROM CURRENT_DATE) - 1 AS year" explicitly, even if the WHERE clause filters by year.
+    #         - Example correct SQL when filtering by last year:
+    #             SELECT
+    #             brand,
+    #             EXTRACT(YEAR FROM CURRENT_DATE) - 1 AS year,
+    #             SUM(sales_value) AS total_sales
+    #             FROM "PRI_sales_rms"
+    #             WHERE year = EXTRACT(YEAR FROM CURRENT_DATE) - 1
+    #             GROUP BY brand, year;
+    #         - Whenever there is a string comparision always perform the comparision in the same case(lower or upper) in the SQL query.
+    #         - Match the condition strings given by the users to the nearest possible value in the conditional columns. For Example: If user is asking about 'aloevera' the user intends to enquire about 'aloe vera' form the fragrance_ingredients column.
+    #         - Respond only with the SQL query.
+    #         - Do NOT include any explanation, commentary, or markdown.
+    #         - Output ONLY one valid SQL statement starting with SELECT or WITH.
+    #         - If you cannot generate valid SQL, output "ERROR" only.
+    #         - For unsupported metrics, output 'ERROR'. """
+    #     )
+        
+    #     try:
+    #         response = self.client.chat.completions.create(
+    #             model="gpt-4",
+    #             messages=[
+    #                 {"role": "system", "content": compare_system_prompt},
+    #                 {"role": "user", "content": prompt}
+    #             ],
+    #             temperature=0
+    #         )
+    #         sql = response.choices[0].message.content.strip()
+    #         self.sql_cache[prompt] = sql
+    #         print(response.usage, "For Compare intent")
+    #         print(response.usage.total_tokens, "Total tokens For Compare intent")
+    #         print("\n=== LLM RAW SQL OUTPUT ===\n", sql, "\n==========================")
+    #     except Exception as e:
+    #         print(f"⚠️ Error during LLM call: {e}")
+    #         return "ERROR", 0
+        
+    #     if sql.upper().startswith(("SELECT", "WITH")) or sql.strip() == "ERROR":
+    #         return sql, int(response.usage.total_tokens)
+    #     return "ERROR", int(response.usage.total_tokens)
+
+    def generate_compare_sql(self, prompt: str):
+        # Extract relevant tables and schemas (unchanged)
+        relevant_tables = self.extract_relevant_table(prompt)
+        relevant_tables_schema = []
+        for table in relevant_tables:
+            schema = self.fetch_table_schema(table)  # Consider trimming schema to essential columns if possible
+            relevant_tables_schema.append(schema)
+        relevant_full_schema = "\n".join(relevant_tables_schema)  # Use single newline for compactness
+
+        # Extract relevant KPIs and build metric section (unchanged)
+        relevant_kpis = self.extract_relevant_kpis(prompt=prompt, relevant_tables=relevant_tables)
+        metric_section = self.build_metric_section(relevant_kpis)
+
+        print(relevant_full_schema)
+        print(metric_section)
+        # Condensed system prompt
+        compare_system_prompt = (
+            f'You are a Postgres SQL expert.\n'
+            f"Table Schema:\n{relevant_full_schema}\n"
+            f"{metric_section}\n"
+            """*** RULES ***
+            - Use only listed tables/columns (no schema prefixes). Quote capitalized table names in double quotes.
+            - Prevent division by zero with NULLIF or CASE.
+            - Add time filters as explicit SELECT columns (e.g., EXTRACT(YEAR FROM CURRENT_DATE) - 1 AS year), even if in WHERE.
+            - For string comparisons, use LOWER() or UPPER() for case-insensitivity.
+            - Fuzzy match user strings to column values (e.g., 'aloevera' -> 'aloe vera').
+            - explicitly state that columns related to "products," "brands," or "items" must be included in the SELECT statement (to show in the output table) and in GROUP BY or ORDER BY for informativeness.
+            - Output ONLY one valid SQL starting with SELECT or WITH. No explanations, markdown, or extras.
+            - For invalid/unsupported queries or metrics, output 'ERROR' only."""
+        )
+
+        # Few-shot examples as a separate message for guidance
+        few_shot_examples = """
+        Example 1:
+        User: Give comparison of aloevera products to green tea products.
+        SQL: SELECT
+                CASE
+                    WHEN LOWER(fragrance_ingredients) LIKE '%aloe%' THEN 'Aloe Vera'
+                    WHEN LOWER(fragrance_ingredients) LIKE '%green tea%' THEN 'Green Tea'
+                    ELSE 'Other'
+                END AS product_type,
+                year,
+                COUNT(*) AS total_products,
+                SUM(sales_value) AS total_sales,
+                SUM(sales_vol) AS total_volume,
+                SUM(sales_units) AS total_units
+            FROM "PRI_sales_rms"
+            WHERE LOWER(fragrance_ingredients) LIKE '%aloe%' OR LOWER(fragrance_ingredients) LIKE '%green tea%'
+            GROUP BY product_type, year
+        Example 2:
+        User: Give yearly comparison of aloevera products
+        SQL: SELECT 
+                year,
+                fragrance_ingredients,
+                SUM(sales_value) AS total_sales
+            FROM "PRI_sales_rms"
+            WHERE LOWER(fragrance_ingredients) LIKE '%aloe vera%'
+            GROUP BY year, fragrance_ingredients
+            ORDER BY year, fragrance_ingredients;
+        """
+
+        try:
+            response = self.client.chat.completions.create(
+                model="gpt-4o",  # Switch to gpt-4o for lower cost/tokens if available
+                messages=[
+                    {"role": "system", "content": compare_system_prompt},
+                    {"role": "assistant", "content": few_shot_examples},  # Few-shot as assistant message
+                    {"role": "user", "content": "Think step-by-step: Identify tables, metrics, filters, then generate SQL."},  # CoT prompt
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0,
+                max_tokens=500  # Limit to prevent runaway usage
+            )
+            sql = response.choices[0].message.content.strip()
+            
+            # Basic validation: Check if it's parseable SQL or 'ERROR'
+            if sql.upper().startswith(("SELECT", "WITH")):
+                try:
+                    parsed = sqlparse.parse(sql)
+                    if not parsed or parsed[0].get_type() not in ('SELECT', 'WITH', 'UNKNOWN'):
+                        sql = "ERROR"
+                except Exception:
+                    sql = "ERROR"
+            elif sql != "ERROR":
+                sql = "ERROR"
+            
+            self.sql_cache[prompt] = sql
+            print(response.usage, "For Compare intent")
+            print(response.usage.total_tokens, "Total tokens For Compare intent")
+            print("\n=== LLM RAW SQL OUTPUT ===\n", sql, "\n==========================")
+            
+            return sql, int(response.usage.total_tokens)
+        
+        except Exception as e:
+            print(f"⚠️ Error during LLM call: {e}")
+            return "ERROR", 0
 
     def generate_simple_sql(self, prompt: str) -> str:
 
@@ -1639,6 +1797,7 @@ class SmartQueryEngine:
             """ *** RULES ***
             - Use only the table and columns above (no schema prefixes). If a table starts with a capital letter, wrap its name in double quotes. 
             - Prevent division by zero (use NULLIF or CASE).
+            - If the user query includes time filters (e.g., year or month) use year column from the table, always add the time filter explicitly as a separate column in the SELECT clause (e.g., EXTRACT(YEAR FROM CURRENT_DATE) - 1 AS year), even if it is also used in the WHERE clause.
             - Whenever there is a string comparision always perform the comparision in the same case(lower or upper) in the SQL query.
             - Match the condition strings given by the users to the nearest possible value in the conditional columns. For Example: If user is asking about 'aloevera' the user intends to enquire about 'aloe vera' form the fragrance_ingredients column.
             - Respond only with the SQL query.
@@ -1883,6 +2042,8 @@ class SmartQueryEngine:
                 "total_tokens": total_tokens_count,
                 "sub_prompts_sql": sql_outputs
             }
+        elif intent == "compare":
+            return "Still In testing Phase, first to test the Main SQL query table."
         else:
             return f"Intent '{intent}' not yet supported."
 
@@ -2032,7 +2193,7 @@ if __name__ == "__main__":
     # test_query = "can you provide the share performance of Brand 1 and pack size of 180"    
     # test_query = "can you provide the metric performance of Brand 1"      
     # test_query = "What is the Sales Growth Percentage of Brand 1 with a pack size of 180 for the last year?"    
-    test_query = "What is the Household Penetration Growth of Brand 1 for the last year?"    
+    # test_query = "What is the Household Penetration Growth of Brand 1 for the last year?"    
     # test_query = "how has the average frequency of purchase for brand 1 changed over the last year?"    
     # test_query = "What is the Sales growth percentage and Household Penetration Growth of Brand 1 for the last year?"    
     # test_query = "can you provide the household penetration growth of brand 1 for the past three years?"    
@@ -2040,7 +2201,7 @@ if __name__ == "__main__":
     # test_query = "Which soap pack sizes are selling the most, especially aloe vera soaps?"    
     # test_query = "What is the Sales Growth Percentage of Brand 2 with aloevera fragrance for the last year?"  
      
-    # test_query = "What is the Performance of all the brands with aloevera fragrance for the last year?"    
+    test_query = "What is the Performance of all the brands with aloevera fragrance for the last year?"    
     # test_query = "What is the Performance of all the brands with greentea fragrance for the last year?"    
 
     # test_query = "How many units of all brands with aloevera fragrance were sold in 2024?"     
@@ -2050,18 +2211,24 @@ if __name__ == "__main__":
     # test_query = "What is the Household Penetration Growth for Brand 11 with a pack size of 100 over the past year"    
     # test_query = "Give the Household Penetration Growth for brands and items with in the last year?"    
     # test_query = "How has the Household Penetration Growth changed for brands with aloevera fragrance in the last year?"   
+    # test_query = "how has the unit growth percentage varied for different manufacturers of aloevera fragrance brands over the last year?"   
 
 
     # How has the Household Penetration Growth changed for brands with aloevera fragrance in the last year?
     # What is the Performance of all the brand 1 bottle versus all brands combined? 
     
     # test_query = "FMCG quarterly growth in urban market?"
+    # test_query = "How do the sales growth percentage of Brand 1 compare to those of Brand 2 last year?" 
+    # test_query = "How do the sales of Brand 1 compare to those of Brand 2 last year?" 
+    # test_query = "Give yearly sales unit and volume comparison of aloevera products" 
+    # test_query = "Give comparison of aloevera products to green tea products" 
+    # test_query = "How do the sales of Brand 1 compare to those of all other brands?" 
 
-    # result = processor.process_query(test_query)
-    # print(result)
-    # intent = result['intent']
-    # tokens_used = result['total_tokens']
-    # print(tokens_used)
+    result = processor.process_query(test_query)
+    print(result)
+    intent = result['intent']
+    tokens_used = result['total_tokens']
+    print(tokens_used)
     # master_sql_query = result['sql_query']
     DB_CONFIG = {
             "host": os.getenv("DB_HOST"),
@@ -2079,18 +2246,22 @@ if __name__ == "__main__":
     )
     
     # Use the original prompt or de-anonymized prompt for SQL generation
-    # sql, tokens_used = smart_engine.generate_simple_sql(result["original_query"])
+    sql, tokens_used = smart_engine.generate_simple_sql(result["original_query"])
+    print(sql)
+    print(tokens_used)
+
+    # sql, tokens_used = smart_engine.generate_compare_sql(result["original_query"])
     # print(sql)
     # print(tokens_used)
 
-    # # Testing Drill Down Questions.
+    # Testing Drill Down Questions.
     # ddq, tu = smart_engine.extract_kpis_and_prompts(test_query)
     # print(ddq)
     # print(tu)
 
     # Testing column names:
     # For Relevant tables
-    relevant_tables = smart_engine.extract_relevant_table(test_query) 
+    # relevant_tables = smart_engine.extract_relevant_table(test_query) 
     # print(relevant_tables)
     # relevant_tables_columns = []
     # for table in relevant_tables:
@@ -2105,8 +2276,8 @@ if __name__ == "__main__":
     # combined_table_context = "\n\n".join(table_contexts)
     # print(combined_table_context)
 
-    compressed_schema = compress_schema(schema_json, relevant_tables=relevant_tables)
-    print(compressed_schema)
+    # compressed_schema = compress_schema(schema_json, relevant_tables=relevant_tables)
+    # print(compressed_schema)
 
 
 #     # Validate/fix if desired
