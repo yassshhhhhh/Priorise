@@ -1617,8 +1617,9 @@ class SmartQueryEngine:
             """*** RULES ***
             - Use only listed tables/columns (no schema prefixes). Quote capitalized table names in double quotes.
             - Prevent division by zero with NULLIF or CASE.
-            - Add time filters as explicit SELECT columns (e.g., EXTRACT(YEAR FROM CURRENT_DATE) - 1 AS year), even if in WHERE.
+            - Add time filters as explicit SELECT columns (e.g., EXTRACT(YEAR FROM CURRENT_DATE) - 1 AS year).
             - For string comparisons, use LOWER() or UPPER() for case-insensitivity.
+            - If query includes soap or bar, consider category column from the table.
             - Fuzzy match user strings to column values (e.g., 'aloevera' -> 'aloe vera').
             - explicitly state that columns related to "products," "brands," or "items" must be included in the SELECT statement (to show in the output table) and in GROUP BY or ORDER BY for informativeness.
             - Output ONLY one valid SQL starting with SELECT or WITH. No explanations, markdown, or extras.
@@ -2201,7 +2202,7 @@ if __name__ == "__main__":
     # test_query = "Which soap pack sizes are selling the most, especially aloe vera soaps?"    
     # test_query = "What is the Sales Growth Percentage of Brand 2 with aloevera fragrance for the last year?"  
      
-    test_query = "What is the Performance of all the brands with aloevera fragrance for the last year?"    
+    # test_query = "What is the Performance of all the brands with aloevera fragrance for the last year?"    
     # test_query = "What is the Performance of all the brands with greentea fragrance for the last year?"    
 
     # test_query = "How many units of all brands with aloevera fragrance were sold in 2024?"     
@@ -2220,6 +2221,7 @@ if __name__ == "__main__":
     # test_query = "FMCG quarterly growth in urban market?"
     # test_query = "How do the sales growth percentage of Brand 1 compare to those of Brand 2 last year?" 
     # test_query = "How do the sales of Brand 1 compare to those of Brand 2 last year?" 
+    test_query = "How has aloe vera soap performed for Brand 2 and Brand 7 this year compared to previous year" 
     # test_query = "Give yearly sales unit and volume comparison of aloevera products" 
     # test_query = "Give comparison of aloevera products to green tea products" 
     # test_query = "How do the sales of Brand 1 compare to those of all other brands?" 
@@ -2246,13 +2248,13 @@ if __name__ == "__main__":
     )
     
     # Use the original prompt or de-anonymized prompt for SQL generation
-    sql, tokens_used = smart_engine.generate_simple_sql(result["original_query"])
-    print(sql)
-    print(tokens_used)
-
-    # sql, tokens_used = smart_engine.generate_compare_sql(result["original_query"])
+    # sql, tokens_used = smart_engine.generate_simple_sql(result["original_query"])
     # print(sql)
     # print(tokens_used)
+
+    sql, tokens_used = smart_engine.generate_compare_sql(result["original_query"])
+    print(sql)
+    print(tokens_used)
 
     # Testing Drill Down Questions.
     # ddq, tu = smart_engine.extract_kpis_and_prompts(test_query)
