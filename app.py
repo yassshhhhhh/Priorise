@@ -290,6 +290,7 @@ with tab1:
         st.write("No query entered yet.")
 
     if st.session_state.get('should_query_kb', False):
+        st.session_state['main_answer_df'] = None #Setting it to none because is should not display the main answer Dataframe.
         # ---- Start your inline logic here ----
         kb_query = st.session_state.current_query
         # st.write(f"Querying Knowledge Base for: {kb_query}")
@@ -1437,7 +1438,7 @@ with tab1:
             st.session_state.checkbox_states[i] = st.checkbox(
                 option,
                 value=st.session_state.checkbox_states[i],
-                key=f"chk_{option}"
+                key=f"chk_{i}"
             )
             if st.session_state.checkbox_states[i]:
                 checked.append(option)
@@ -2532,38 +2533,41 @@ with tab2:
         st.markdown(f"<p style='font-size:18px; font-weight:bold;'>Selected Question: {selected_question}</p>", unsafe_allow_html=True)
     sql_query = st.text_area("SQL Query:", key="sql_text_area_val", height=200)
 
+    crud_keywords = ["INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "TRUNCATE", "CREATE"]
+
     if st.button("Execute SQL Query"):
-        try:
-            # Execute the query and get dataframe
-            df_result = st.session_state.engine.execute_sql(sql_query)
-            # st.session_state['last_generated_sql'] = sql_query  # Save current SQL
-            # st.session_state['selected_sql_for_edit'] = sql_query
+        # Check for CRUD keywords (case-insensitive)
+        sql_query_upper = sql_query.upper()
+        if any(kw in sql_query_upper for kw in crud_keywords):
+            st.warning("⚠️ Access denied: CRUD operations (INSERT, UPDATE, DELETE, DROP, ALTER, TRUNCATE, CREATE) are not allowed.")
+        else:
+            try:
+                df_result = st.session_state.engine.execute_sql(sql_query)
+                df = df_result.copy()
+                df = df.reset_index(drop=True)
 
-            df = df_result.copy()
-            # Reset index to remove index column from output
-            df = df.reset_index(drop=True)
+                def format_number(x, is_year=False):
+                    if pd.isna(x):
+                        return ""
+                    if is_year:
+                        return f"{int(x)}"
+                    else:
+                        return f"{x:,.2f}"
 
-            def format_number(x, is_year=False):
-                if pd.isna(x):
-                    return ""
-                if is_year:
-                    return f"{int(x)}"
+                for col in df.columns:
+                    if col.lower() == "year":
+                        df[col] = df[col].map(lambda x: format_number(x, is_year=True))
+                    elif pd.api.types.is_numeric_dtype(df[col]):
+                        df[col] = df[col].map(format_number)
+
+                if df_result is not None and not df_result.empty:
+                    st.write("Query Result:")
+                    st.dataframe(df, hide_index=True)
                 else:
-                    return f"{x:,.2f}"
+                    st.info("No data returned from query.")
+            except Exception as e:
+                st.error(f"Failed to execute SQL: {e}")
 
-            for col in df.columns:
-                if col.lower() == "year":
-                    df[col] = df[col].map(lambda x: format_number(x, is_year=True))
-                elif pd.api.types.is_numeric_dtype(df[col]):
-                    df[col] = df[col].map(format_number)
-
-            if df_result is not None and not df_result.empty:
-                st.write("Query Result:")
-                st.dataframe(df, hide_index=True)
-            else:
-                st.info("No data returned from query.")
-        except Exception as e:
-            st.error(f"Failed to execute SQL: {e}")
 
 # Function to load latest chat history
 def load_latest_chat_history():

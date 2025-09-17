@@ -2193,7 +2193,8 @@ if __name__ == "__main__":
     # test_query = "How Many people tried Brand 1 for the first time"    
     # test_query = "can you provide the share performance of Brand 1 and pack size of 180"    
     # test_query = "can you provide the metric performance of Brand 1"      
-    # test_query = "What is the Sales Growth Percentage of Brand 1 with a pack size of 180 for the last year?"    
+    test_query = "What is the Sales Growth Percentage of Brand 1 with a pack size of 180 for the last year?"    
+    # test_query = "How has the Unit Growth Percentage for aloevera fragrance brands varied across different pack types in the last year?"    
     # test_query = "What is the Household Penetration Growth of Brand 1 for the last year?"    
     # test_query = "how has the average frequency of purchase for brand 1 changed over the last year?"    
     # test_query = "What is the Sales growth percentage and Household Penetration Growth of Brand 1 for the last year?"    
@@ -2221,7 +2222,7 @@ if __name__ == "__main__":
     # test_query = "FMCG quarterly growth in urban market?"
     # test_query = "How do the sales growth percentage of Brand 1 compare to those of Brand 2 last year?" 
     # test_query = "How do the sales of Brand 1 compare to those of Brand 2 last year?" 
-    test_query = "How has aloe vera soap performed for Brand 2 and Brand 7 this year compared to previous year" 
+    # test_query = "How has aloe vera soap performed for Brand 2 and Brand 7 this year compared to previous year" 
     # test_query = "Give yearly sales unit and volume comparison of aloevera products" 
     # test_query = "Give comparison of aloevera products to green tea products" 
     # test_query = "How do the sales of Brand 1 compare to those of all other brands?" 
@@ -2248,13 +2249,13 @@ if __name__ == "__main__":
     )
     
     # Use the original prompt or de-anonymized prompt for SQL generation
-    # sql, tokens_used = smart_engine.generate_simple_sql(result["original_query"])
-    # print(sql)
-    # print(tokens_used)
-
-    sql, tokens_used = smart_engine.generate_compare_sql(result["original_query"])
+    sql, tokens_used = smart_engine.generate_simple_sql(result["original_query"])
     print(sql)
     print(tokens_used)
+
+    # sql, tokens_used = smart_engine.generate_compare_sql(result["original_query"])
+    # print(sql)
+    # print(tokens_used)
 
     # Testing Drill Down Questions.
     # ddq, tu = smart_engine.extract_kpis_and_prompts(test_query)
