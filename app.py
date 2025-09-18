@@ -35,6 +35,7 @@ import hashlib
 
 # Imports from filtered.py
 from temp_filtered import * 
+from infographic_functions import *
 # -----------------------
 # At top of app.py (right after imports)
 for key, val in {
@@ -79,6 +80,8 @@ if "debug_mode" not in st.session_state:
 if "current_query" not in st.session_state:
     st.session_state.current_query = None
 # Recently Updated.
+if 'triangulation' not in st.session_state:
+    st.session_state['triangulation'] = None
 if 'main_answer_df' not in st.session_state:
     st.session_state['main_answer_df'] = None
 if "database_previous_prompts" not in st.session_state:
@@ -261,7 +264,7 @@ with tab1:
     temp_query = st.text_input("Enter your question:")
 
     # Ask button and save query to chat history
-    col1, col2, empty_col = st.columns([0.6, 1, 2])
+    col1, col2, col3, empty_col = st.columns([0.9, 1.6, 1, 1.8])
     with col1:
         if st.button("Sql Query", key="ask_btn"):
             if temp_query:
@@ -283,6 +286,16 @@ with tab1:
                 st.session_state.current_query_token_usage = 0
                 st.session_state.should_query_kb = True
                 st.session_state.current_query = temp_query
+    
+    with col3:
+        if st.button("Triangulation", key="Tri_btn"):
+            if temp_query:
+                st.session_state.current_query_token_usage = 0
+                st.session_state.should_query = True
+                st.session_state.current_query = temp_query
+                st.session_state.last_query = temp_query
+                st.session_state.triangulation = True
+
 
     if temp_query:
         st.markdown(f"<p style='font-size:20px; font-weight:bold;'>{temp_query}</p>", unsafe_allow_html=True)
@@ -294,7 +307,9 @@ with tab1:
         # ---- Start your inline logic here ----
         kb_query = st.session_state.current_query
         # st.write(f"Querying Knowledge Base for: {kb_query}")
-        st.markdown("---\n**Query Knowledge Base:**")
+        st.markdown("**Query Knowledge Base:**")
+        if not uploaded_files:
+                st.warning("Please Upload files for Query Knowledge Base analysis!")
         # Add your normal app.py fallback answer logic here
         EXCEL_FILE_PATH = "callback_data.xlsx"
         user_defined_path = os.getcwd()
@@ -1281,6 +1296,303 @@ with tab1:
                     st.session_state.should_query = False
         # ---- End your inline logic ----
         st.session_state.should_query_kb = False
+# ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#This Part code is for the Triangulation.
+    if st.session_state.triangulation:
+        if not uploaded_files:
+                st.warning("Please Upload files for Text extraction to process Triangulation analysis!")
+        with st.spinner("Triangulation analysis..."):
+            y_processor = st.session_state.query_processor
+            result = y_processor.process_query(st.session_state.last_query)
+            y_intent = result['intent']
+            print(y_intent)
+            add_token_usage(result['total_tokens'], st.session_state.last_query, usage_type="Intent Classification")
+
+            engine = st.session_state.engine
+
+            if y_intent == 'compare':
+                init_sql, tokens_used_for_init_sql = engine.generate_compare_sql(result["original_query"])
+            else:
+                init_sql, tokens_used_for_init_sql = engine.generate_simple_sql(result["original_query"])
+            # st.code(init_sql, language="sql")
+            add_token_usage(tokens_used_for_init_sql, result["original_query"], usage_type="Initial SQL generation")
+
+            # Validate/fix if desired
+            validation_results = engine.validate_queries_with_explain([{"prompt": result["original_query"], "sql": init_sql}])
+            print(validation_results)
+            if validation_results["failed"]:
+                fix_results = engine.fix_failed_queries_with_llm(validation_results["failed"])
+                # print(fix_results)
+                add_token_usage(fix_results['fixed_results'][0]['token_used'], result["original_query"], usage_type="For Fixing failed queries.")
+                print(fix_results['fixed_results'][0]['llm_suggestion'])
+                fixed_sql = fix_results['fixed_results'][0]['llm_suggestion']
+                cleaned_query = fixed_sql.replace("```sql", "").replace("```", "").replace("\n", "").strip()
+                try:
+                    result_df = engine.execute_sql(cleaned_query)
+                    st.session_state['last_generated_sql'] = cleaned_query
+                    st.session_state['query_sql_map'][result["original_query"]] = cleaned_query
+                    # st.dataframe(result_df)
+                    # For Showing Initial Sql table
+                    st.session_state['main_answer_df'] = result_df
+                except Exception as e:
+                    # st.error(f"Failed to execute SQL: {e}")
+                    st.write("There's no data related to the question in the database.")
+                
+            elif validation_results["successful"]:
+                try:
+                    result_df = engine.execute_sql(init_sql)
+                    st.session_state['last_generated_sql'] = init_sql
+                    st.session_state['query_sql_map'][result["original_query"]] = init_sql
+                    # st.dataframe(result_df)
+                    # For Showing Initial Sql table
+                    st.session_state['main_answer_df'] = result_df
+                except Exception as e:
+                    st.write("There's no data related to the question in the database.")
+
+            if y_intent == 'compare' or y_intent == 'analysis':
+                st.write('Text Extraction form the PDF')
+                EXCEL_FILE_PATH = "callback_data.xlsx"
+                user_defined_path = os.getcwd()
+                udp = os.path.join(user_defined_path, "exports", "charts")
+
+                if uploaded_files:
+                    dataframes = []
+                    pdf_texts = []
+                    ppt_texts = []  # New list for PPT data
+                    extracted_images = []
+                    
+                    for uploaded_file in uploaded_files:
+                        try:
+                            if uploaded_file.name.endswith('.pptx'):
+                                # Process PPTX files
+                                uploaded_file.seek(0)
+                                pptx_result = test_process_pptx_with_gpt4v(uploaded_file)
+                                add_token_usage(token_count=pptx_result['total_tokens'], query_text="Processing PPTX", usage_type="Processing PPTX")
+                                if pptx_result:
+                                    ppt_texts.append({
+                                        "name": uploaded_file.name,
+                                        "text": pptx_result["text"],
+                                        "slides": pptx_result["slides/pages"]
+                                    })
+                                
+                                # Extract images from PPTX
+                                uploaded_file.seek(0)
+                                pptx_images = test_extract_images_from_pptx(uploaded_file)
+                                extracted_images.extend([{
+                                    'source': uploaded_file.name,
+                                    'type': 'pptx',
+                                    **img
+                                } for img in pptx_images])
+                            
+                            elif uploaded_file.name.endswith('.pdf'):
+                                # Calculate file hash
+                                file_content = uploaded_file.read()
+                                file_hash = test_calculate_file_hash(file_content)
+                                
+                                # Check if file exists in database with same hash
+                                doc_data = db.get_document(uploaded_file.name)
+                                if doc_data and doc_data["file_hash"] == file_hash:
+                                    if st.session_state.debug_mode:
+                                        st.write(f"Using cached data from database for PDF: {uploaded_file.name}")
+                                    pdf_texts.append({
+                                        "name": uploaded_file.name,
+                                        "text": doc_data["content"]["text"],
+                                        "pages": doc_data["content"]["pages"]
+                                    })
+                                else:
+                                    # Process new PDF file
+                                    uploaded_file.seek(0)
+                                    # Initial way to extracting data
+                                    pdf_reader = PdfReader(uploaded_file)
+                                    text = ""
+                                    pages = []
+                                    for i, page in enumerate(pdf_reader.pages):
+                                        page_text = page.extract_text() or ""
+                                        text += page_text
+                                        pages.append({
+                                            "page_number": i + 1,
+                                            "text": page_text,
+                                            "char_count": len(page_text),
+                                            "word_count": len(page_text.split())
+                                        })
+                                    
+                                    result = {
+                                        "text": text,
+                                        "pages": pages,
+                                        "processed_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                    }
+                                    
+                                    # Save to database
+                                    db.save_document(
+                                        filename=uploaded_file.name,
+                                        file_type="pdf",
+                                        content=result,
+                                        file_hash=file_hash
+                                    )
+                                    
+                                    pdf_texts.append({
+                                        "name": uploaded_file.name,
+                                        "text": text,
+                                        "pages": pages
+                                    })
+
+                                # ------- Updated - 9/9/25 -------
+                                uploaded_file.seek(0)  # Reset file pointer for image extraction
+
+                                pdf_images = test_extract_images_from_pdf(uploaded_file)
+                                extracted_images.extend([{
+                                    'source': uploaded_file.name,
+                                    'type': 'pdf',
+                                    **img
+                                } for img in pdf_images])
+
+                                # ------- Till here -------
+
+                            elif uploaded_file.name.endswith('.csv'):
+                                df = pd.read_csv(uploaded_file)
+                                dataframes.append(df)
+                            elif uploaded_file.name.endswith('.xlsx'):
+                                df = pd.read_excel(uploaded_file)
+                                for col in df.select_dtypes(include=['object']).columns:
+                                    unique_values_dict[col] = df[col].dropna().unique().tolist()
+                                dataframes.append(df)
+                            else:
+                                st.error(f"Unsupported file format: {uploaded_file.name}")
+                                continue
+                            
+                        except Exception as e:
+                            st.error(f"Error loading file '{uploaded_file.name}': {e}")
+                            continue
+
+                    # Store extracted images in session state
+                    st.session_state['extracted_images'] = extracted_images
+
+                    # Process PDFs into chunks
+                    if pdf_texts:
+                        combined_text = "\n".join([pdf["text"] for pdf in pdf_texts])
+                        text_splitter = RecursiveCharacterTextSplitter(
+                            chunk_size=1000,
+                            chunk_overlap=200,
+                            length_function=len
+                        )
+                        chunks = text_splitter.split_text(combined_text)
+                        st.session_state['pdf_chunks'] = chunks
+
+                    if dataframes:
+                        # st.write('dataframes')
+                        sales_data = SmartDatalake(dataframes, config={"llm": llm, "use_error_correction_framework": True, "data_dict": data_dict})
+                    else:
+                        sales_data = None
+                else:
+                    sales_data = None
+
+                query = st.session_state.get('current_query', None)
+
+                if query and (pdf_texts or ppt_texts) and not sales_data:
+                    try:
+                        responses = []
+                        
+                        # Process PPTs
+                        for ppt_name, ppt_data in [(ppt["name"], ppt) for ppt in ppt_texts]:
+                            if st.session_state.debug_mode:
+                                st.write(f"Analyzing PPT: {ppt_name}")
+                            
+                            try:
+                                # Get document from database
+                                doc_data = db.get_document(ppt_name)
+                                if doc_data:
+                                    # Use slides/pages for PPT files
+                                    slides_data = {
+                                        "pages": doc_data["content"]["slides/pages"]  # Map slides to pages format
+                                    }
+                                    response, total_tok = test_process_pdf_query_page_wise(query, slides_data)
+                                    add_token_usage(token_count=total_tok, query_text="For processing pdf page wise in PPTX",usage_type="PDF page wise query in PPTX.")
+                                    if "No relevant information found" not in response:
+                                        responses.append({
+                                            "source": ppt_name,
+                                            "type": "ppt",
+                                            "content": response
+                                        })
+                            except Exception as e:
+                                if st.session_state.debug_mode:
+                                    st.error(f"Error processing PPT {ppt_name}: {str(e)}")
+                                continue
+                        
+                        # Process PDFs
+                        for pdf_name, pdf_data in [(pdf["name"], pdf) for pdf in pdf_texts]:
+                            if st.session_state.debug_mode:
+                                st.write(f"Analyzing PDF: {pdf_name}")
+                            
+                            try:
+                                # Get document from database
+                                doc_data = db.get_document(pdf_name)
+                                if doc_data:
+                                    response, total_toke = test_process_pdf_query_page_wise(query, doc_data["content"])
+                                    add_token_usage(token_count=total_toke, query_text="For processing pdf page wise",usage_type="PDF page wise query.")
+                                    if response != "No relevant information found in the document to answer this question.":
+                                        responses.append({
+                                            "pdf_name": pdf_name,
+                                            "response": response
+                                        })
+                            except Exception as e:
+                                if st.session_state.debug_mode:
+                                    st.error(f"Error processing PDF {pdf_name}: {str(e)}")
+                                continue
+
+                        # Synthesize all responses
+                        if responses:
+                            try:
+                                synthesis_prompt = f"""
+                                Based on the following information from various sources:
+                                {json.dumps(responses, indent=2)}
+                                
+                                Provide a comprehensive answer to: {query}
+                                
+                                Requirements:
+                                1. Synthesize all relevant information
+                                2. For each piece of information, cite its source (PPT or PDF filename)
+                                3. Present information in a clear, logical flow
+                                4. Focus only on relevant insights
+                                5. Format the response as follows:
+                                    - Main answer with insights
+                                    - Sources section listing which files contributed to the answer
+                                """
+                                
+                                final_response = client.chat.completions.create(
+                                    model="gpt-4o",
+                                    messages=[
+                                        {"role": "system", "content": "You are synthesizing information from multiple sources, providing clear answers with proper source citations."},
+                                        {"role": "user", "content": synthesis_prompt}
+                                    ],
+                                    temperature=0,
+                                    max_tokens=1000
+                                )
+                                tokens_used = final_response.usage.total_tokens
+                                add_token_usage(tokens_used, "final response", usage_type="Unstructured Data")
+                                final_insight = final_response.choices[0].message.content
+                                st.write(final_insight)
+                                print(final_response.usage, 'Final response')
+                                # # Update chat history
+                                # for chat in st.session_state['chat_history']:
+                                #     if chat["query"] == query:
+                                #         chat["response"] = final_insight
+                                #         break
+                                # auto_save_chat_history()
+                            except Exception as e:
+                                if st.session_state.debug_mode:
+                                    st.error(f"Error synthesizing responses: {str(e)}")
+                                st.error("An error occurred while processing your query. Please try again.")
+                        else:
+                            st.write("No relevant information found in any of the uploaded documents.")
+
+                    except Exception as e:
+                        if st.session_state.debug_mode:
+                            st.error(f"Error in query processing: {str(e)}")
+                        st.error("An error occurred while processing your query. Please try again.")
+                    finally:
+                        st.session_state.should_query = False
+        st.session_state.triangulation = None
+# Till here
 # ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
     if st.session_state.should_run_filtered:
         with st.spinner("Processing filtered analysis..."):

@@ -1800,7 +1800,7 @@ class SmartQueryEngine:
             - Prevent division by zero (use NULLIF or CASE).
             - If the user query includes time filters (e.g., year or month) use year column from the table, always add the time filter explicitly as a separate column in the SELECT clause (e.g., EXTRACT(YEAR FROM CURRENT_DATE) - 1 AS year), even if it is also used in the WHERE clause.
             - Whenever there is a string comparision always perform the comparision in the same case(lower or upper) in the SQL query.
-            - Match the condition strings given by the users to the nearest possible value in the conditional columns. For Example: If user is asking about 'aloevera' the user intends to enquire about 'aloe vera' form the fragrance_ingredients column.
+            - Match the condition strings given by the users to the nearest possible value in the conditional columns. For Example: If user is asking about 'aloevera' the user intends to enquire about 'aloe vera' form the fragrance_ingredients column. For example: LOWER(market) like '%urban%'
             - Respond only with the SQL query.
             - Do NOT include any explanation, commentary, or markdown.
             - Output ONLY one valid SQL statement starting with SELECT or WITH.
