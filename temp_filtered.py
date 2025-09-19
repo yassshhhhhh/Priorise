@@ -1533,66 +1533,38 @@ class SmartQueryEngine:
             print(f"Failed to fetch column names for {table_name}: {e}")
             return []
 
-    # def generate_compare_sql(self, prompt: str):
-    #     # For Relevant tables
-    #     relevant_tables = self.extract_relevant_table(prompt) 
-    #     relevant_tables_schema = []
-    #     for table in relevant_tables:
-    #         schema = self.fetch_table_schema(table)
-    #         relevant_tables_schema.append(schema)
-    #     relevant_full_schema = "\n\n".join(relevant_tables_schema)
-    #     print(relevant_full_schema)
+    def generate_synthesis_text(self, prompt:str, sql_dataframe:pd.DataFrame, insights_text: str):
+        system_prompt = f""" You are a skilled data analyst. Synthesize a concise response to the user's question using the SQL query results and document insights.
 
-    #     # For relevant KPI's
-    #     relevant_kpis = self.extract_relevant_kpis(prompt=prompt, relevant_tables=relevant_tables)
-    #     metric_section = self.build_metric_section(relevant_kpis)
-    #     print(metric_section)
-    #     compare_system_prompt = (
-    #         f'You are a Postgres SQL expert.\n'
-    #         f"Table Schema: {relevant_full_schema}"
-    #         f"{metric_section}\n"
-    #         """ *** RULES ***
-    #         - Use only the table and columns above (no schema prefixes). If a table starts with a capital letter, wrap its name in double quotes. 
-    #         - Prevent division by zero (use NULLIF or CASE).
-    #         - Always add the time filter as a separate column in SELECT. For example, include "EXTRACT(YEAR FROM CURRENT_DATE) - 1 AS year" explicitly, even if the WHERE clause filters by year.
-    #         - Example correct SQL when filtering by last year:
-    #             SELECT
-    #             brand,
-    #             EXTRACT(YEAR FROM CURRENT_DATE) - 1 AS year,
-    #             SUM(sales_value) AS total_sales
-    #             FROM "PRI_sales_rms"
-    #             WHERE year = EXTRACT(YEAR FROM CURRENT_DATE) - 1
-    #             GROUP BY brand, year;
-    #         - Whenever there is a string comparision always perform the comparision in the same case(lower or upper) in the SQL query.
-    #         - Match the condition strings given by the users to the nearest possible value in the conditional columns. For Example: If user is asking about 'aloevera' the user intends to enquire about 'aloe vera' form the fragrance_ingredients column.
-    #         - Respond only with the SQL query.
-    #         - Do NOT include any explanation, commentary, or markdown.
-    #         - Output ONLY one valid SQL statement starting with SELECT or WITH.
-    #         - If you cannot generate valid SQL, output "ERROR" only.
-    #         - For unsupported metrics, output 'ERROR'. """
-    #     )
-        
-    #     try:
-    #         response = self.client.chat.completions.create(
-    #             model="gpt-4",
-    #             messages=[
-    #                 {"role": "system", "content": compare_system_prompt},
-    #                 {"role": "user", "content": prompt}
-    #             ],
-    #             temperature=0
-    #         )
-    #         sql = response.choices[0].message.content.strip()
-    #         self.sql_cache[prompt] = sql
-    #         print(response.usage, "For Compare intent")
-    #         print(response.usage.total_tokens, "Total tokens For Compare intent")
-    #         print("\n=== LLM RAW SQL OUTPUT ===\n", sql, "\n==========================")
-    #     except Exception as e:
-    #         print(f"⚠️ Error during LLM call: {e}")
-    #         return "ERROR", 0
-        
-    #     if sql.upper().startswith(("SELECT", "WITH")) or sql.strip() == "ERROR":
-    #         return sql, int(response.usage.total_tokens)
-    #     return "ERROR", int(response.usage.total_tokens)
+                            Instructions:
+                            1. Summarize key trends or patterns from the SQL data. Note any significant changes or missing values.
+                            2. Incorporate relevant insights from the document to support or explain the data.
+                            3. Combine both sources to answer the question clearly and professionally.
+                            4. If SQL data is empty, explain why and use document insights alone.
+                            5. Avoid speculation; base the response on provided data.
+
+                            User Question: {prompt}
+                            SQL Result: {sql_dataframe.to_string()}
+                            Document Insights: {insights_text}
+                        """
+        try:
+            response = self.client.chat.completions.create(
+                model="gpt-4o-mini", 
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0,
+                max_tokens=300  # Limit to prevent runaway usage
+            )
+            extracted_text = response.choices[0].message.content
+            total_tokens = response.usage.total_tokens
+            return extracted_text, total_tokens 
+
+        except Exception as e:
+            print(f"⚠️ Error during LLM call: {e}")
+            return "ERROR", int(response.usage.total_tokens)
+
 
     def generate_compare_sql(self, prompt: str):
         # Extract relevant tables and schemas (unchanged)
@@ -2249,11 +2221,15 @@ if __name__ == "__main__":
     )
     
     # Use the original prompt or de-anonymized prompt for SQL generation
-    sql, tokens_used = smart_engine.generate_simple_sql(result["original_query"])
-    print(sql)
-    print(tokens_used)
+    # sql, tokens_used = smart_engine.generate_simple_sql(result["original_query"])
+    # print(sql)
+    # print(tokens_used)
 
     # sql, tokens_used = smart_engine.generate_compare_sql(result["original_query"])
+    # print(sql)
+    # print(tokens_used)
+
+    # sql, tokens_used = smart_engine.generate_synthesis_text(result["original_query"], syn_dataframe, syn_insights)
     # print(sql)
     # print(tokens_used)
 

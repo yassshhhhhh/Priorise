@@ -1299,6 +1299,8 @@ with tab1:
 # ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #This Part code is for the Triangulation.
     if st.session_state.triangulation:
+        syn_dataframe = ""
+        syn_insights = ""
         if not uploaded_files:
                 st.warning("Please Upload files for Text extraction to process Triangulation analysis!")
         with st.spinner("Triangulation analysis..."):
@@ -1334,6 +1336,10 @@ with tab1:
                     # st.dataframe(result_df)
                     # For Showing Initial Sql table
                     st.session_state['main_answer_df'] = result_df
+                    print(result_df)
+                    print(type(result_df))
+                    syn_dataframe = result_df
+
                 except Exception as e:
                     # st.error(f"Failed to execute SQL: {e}")
                     st.write("There's no data related to the question in the database.")
@@ -1346,6 +1352,10 @@ with tab1:
                     # st.dataframe(result_df)
                     # For Showing Initial Sql table
                     st.session_state['main_answer_df'] = result_df
+                    # print(result_df.to_string())
+                    # print(type(result_df))
+                    syn_dataframe = result_df
+
                 except Exception as e:
                     st.write("There's no data related to the question in the database.")
 
@@ -1572,6 +1582,7 @@ with tab1:
                                 final_insight = final_response.choices[0].message.content
                                 st.write(final_insight)
                                 print(final_response.usage, 'Final response')
+                                syn_insights = final_insight
                                 # # Update chat history
                                 # for chat in st.session_state['chat_history']:
                                 #     if chat["query"] == query:
@@ -1591,6 +1602,11 @@ with tab1:
                         st.error("An error occurred while processing your query. Please try again.")
                     finally:
                         st.session_state.should_query = False
+
+            if not syn_dataframe.empty and syn_insights != "":
+                syn_results, total_tokens_syn = engine.generate_synthesis_text(result["original_query"], syn_dataframe, syn_insights)     
+                st.markdown(syn_results)
+                add_token_usage(total_tokens_syn, result["original_query"], "For Sysnthesis")
         st.session_state.triangulation = None
 # Till here
 # ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
